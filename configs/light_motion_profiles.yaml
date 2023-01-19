@@ -1,0 +1,44 @@
+users:
+  nick:
+    guest: false
+    icons:
+      awake: mdi:human-male
+      winddown: mdi:alien
+      asleep: mdi:bed
+    tracking_entity: person.nick_davies
+
+  partner:
+    guest: false
+    icons:
+      awake: mdi:human-female
+      winddown: mdi:alien-outline
+      asleep: mdi:bed-outline
+
+  guest_1:
+    guest: true
+    icons:
+      exists: mdi:account-question
+      awake: mdi:account-clock
+      winddown: mdi:arrow-down-bold-box
+      asleep: mdi:bed-double
+
+  guest_2:
+    guest: true
+    icons:
+      exists: mdi:account-question
+      awake: mdi:account-clock
+      winddown: mdi:arrow-down-bold-box
+      asleep: mdi:bed-double
+
+groups:
+  primary:
+    nick:
+    partner:
+
+  guests:
+    guest_1:
+    guest_2:
+
+  everyone:
+    primary:
+    guests:

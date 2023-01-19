@@ -1,0 +1,65 @@
+nick_status_override:
+  name: Manual override for nick's home/away status
+  options:
+    - auto
+    - Unknown
+    - home
+    - not_home
+
+person_nick_awake_state:
+  name: nick awake state
+  icon: mdi:human-male
+  options:
+    - awake
+    - winddown
+    - asleep
+
+partner_status_override:
+  name: Manual override for partner's home/away status
+  options:
+    - auto
+    - Unknown
+    - home
+    - not_home
+
+person_partner_awake_state:
+  name: partner awake state
+  icon: mdi:human-male
+  options:
+    - awake
+    - winddown
+    - asleep
+
+guest_1_status_override:
+  name: Manual override for guest_1's home/away status
+  options:
+    - auto
+    - Unknown
+    - home
+    - not_home
+
+person_guest_1_awake_state:
+  name: guest_1 awake state
+  icon: mdi:account-clock
+  options:
+    - awake
+    - winddown
+    - asleep
+
+
+guest_2_status_override:
+  name: Manual override for guest_2's home/away status
+  options:
+    - auto
+    - Unknown
+    - home
+    - not_home
+
+person_guest_2_awake_state:
+  name: guest_2 awake state
+  icon: mdi:account-clock
+  options:
+    - awake
+    - winddown
+    - asleep
+
