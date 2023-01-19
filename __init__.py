@@ -114,6 +114,14 @@ async def async_setup(hass, whole_config):
 
     await discovery.async_load_platform(
         hass,
+        Platform.SELECT,
+        DOMAIN,
+        config,
+        whole_config,
+    )
+
+    await discovery.async_load_platform(
+        hass,
         Platform.SENSOR,
         DOMAIN,
         config,
