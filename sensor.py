@@ -40,7 +40,6 @@ async def async_setup_platform(
 
     user_sensors = []
     for user, user_config in discovery_info.get(FIELD_USERS, {}).items():
-        _LOGGER.warning(f"{user} -> {user_config}")
         user_sensors.append(
             UserHomeAwaySensor(
                 name=user,
@@ -77,7 +76,7 @@ class CalculatedSensor:
 
     def _force_update(self):
         new_state = self.calculate_current_state()
-        _LOGGER.warning(f"new_state for {self._attr_name}={new_state}")
+        _LOGGER.info(f"new_state for {self._attr_name}={new_state}")
         self._attr_native_value = new_state
         self.async_write_ha_state()
 
@@ -86,7 +85,7 @@ class CalculatedSensor:
         def dependent_entity_change(event):
             self._force_update()
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             f"subscribing {self._attr_name} up for {self._dependent_entities} updates"
         )
         self.async_on_remove(

@@ -30,7 +30,6 @@ DEFAULT_STATE_IF_UNKNOWN = "absent"
 def validate_group_members(group_name, groups, users, seen=None):
     if seen is None:
         seen = []
-    _LOGGER.warning(f"{group_name} Seen={seen}")
     if group_name in seen:
         seen.append(group_name)
         raise vol.Invalid(f"Loop in groups found: {' -> '.join(seen)}")
@@ -112,7 +111,6 @@ async def async_setup(hass, whole_config):
     hass.states.async_set("light_motion_profiles.hello_world", "Hello!")
 
     config = whole_config[DOMAIN]
-    _LOGGER.warning(config)
 
     await discovery.async_load_platform(
         hass,
