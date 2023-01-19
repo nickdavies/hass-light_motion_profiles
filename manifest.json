@@ -1,0 +1,11 @@
+{
+  "domain": "light_motion_profiles",
+  "name": "Light motion profiles",
+  "version": "0.0.1",
+  "integration_type": "helper",
+  "documentation": "https://github.com/nickdavies/ha-light-motion-profiles",
+  "dependencies": [],
+  "codeowners": ["@nickdavies"],
+  "requirements": [],
+  "iot_class": "calculated"
+}
