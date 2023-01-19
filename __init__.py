@@ -108,13 +108,19 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
-if __name__ == "__main__":
-    import sys
+async def async_setup(hass, whole_config):
+    hass.states.async_set("light_motion_profiles.hello_world", "Hello!")
 
-    import yaml
+    config = whole_config[DOMAIN]
+    _LOGGER.warning(config)
 
-    with open(sys.argv[1], "r") as f:
-        config = yaml.safe_load(f)
+    await discovery.async_load_platform(
+        hass,
+        Platform.SENSOR,
+        DOMAIN,
+        config,
+        whole_config,
+    )
 
-    print(config)
-    print(CONFIG_SCHEMA(config))
+    # Return boolean to indicate that initialization was successful.
+    return True
