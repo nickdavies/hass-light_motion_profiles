@@ -24,6 +24,8 @@ CONFIG_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
+GROUP_SEPARATOR = ","
+
 
 async def async_setup(hass, whole_config):
     hass.states.async_set("light_motion_profiles.hello_world", "Hello!")

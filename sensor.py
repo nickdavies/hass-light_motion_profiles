@@ -1,5 +1,6 @@
 import logging
 
+from . import GROUP_SEPARATOR
 from .schema_users_groups import (
     FIELD_STATE_IF_UNKNOWN,
     FIELD_SETTINGS,
@@ -186,11 +187,11 @@ class GroupPresenceSensor(CalculatedSensor, SensorEntity):
 
     @classmethod
     def deserialize(cls, value):
-        return set(value.split("_"))
+        return set(value.split(GROUP_SEPARATOR))
 
     @classmethod
     def serialize(cls, states):
-        return "_".join(sorted(set(states)))
+        return GROUP_SEPARATOR.join(sorted(set(states)))
 
     def calculate_current_state(self):
         member_states = {}
