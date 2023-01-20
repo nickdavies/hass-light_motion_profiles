@@ -3,10 +3,8 @@ from .entity_names import (
     person_state_entity,
 )
 from .schema_users_groups import (
-    DEFAULT_PERSON_STATES,
+    get_person_states,
     FIELD_HOME_AWAY_ICONS,
-    FIELD_PERSON_STATES,
-    FIELD_SETTINGS,
     FIELD_STATE_ICONS,
     FIELD_USERS,
     HOME_AWAY_STATES,
@@ -26,9 +24,7 @@ async def async_setup_platform(
     discovery_info,
 ) -> None:
     user_sensors = []
-    person_states = discovery_info.get(FIELD_SETTINGS, {}).get(
-        FIELD_PERSON_STATES, DEFAULT_PERSON_STATES
-    )
+    person_states = get_person_states(discovery_info)
     for user, user_config in discovery_info.get(FIELD_USERS, {}).items():
         user_sensors.append(
             HomeAwaySelect(user, icons=user_config.get(FIELD_HOME_AWAY_ICONS, {}))

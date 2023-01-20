@@ -59,6 +59,7 @@ groups:
     primary:
     guests:
 
+
 light_profiles:
   enable:
     enabled: true
@@ -77,30 +78,44 @@ light_profiles:
     enabled: true
     brightness_pct: 5
 
+
 light_rule_templates:
    # For any area thats generally owned by a single group (because this is an exhaustive match).
    # it prefers the "most awake" state in the options. So this wouldn't be suitable for anything
    # that is sensitive
    prefer_awake:
-     awake: full
-     winddown: dim
-     asleep: disable
-     asleep_awake: full
-     asleep_winddown: dim
-     asleep_winddown_awake: full
-     winddown_awake: full
+     - profile: full
+       match_type: all
+       states:
+         - awake
+     - profile: dim
+       match_type: all
+       states:
+         - winddown
+     - profile: disable
+       match_type: all
+       states:
+         - asleep
 
    # For any area thats generally owned by a single group (because this is an exhaustive match).
    # it prefers the "most asleep" state in the options. So this wouldn't be suitable for anything
    # that is pretty private and wont effect others
    prefer_asleep:
-     awake: full
-     winddown: dim
-     asleep: disable
-     asleep_awake: disable
-     asleep_winddown: disable
-     asleep_winddown_awake: disable
-     winddown_awake: dim
+     - profile: disable
+       match_type: all
+       states:
+         - asleep
+
+     - profile: dim
+       match_type: all
+       states:
+         - winddown
+
+     - profile: full
+       match_type: all
+       states:
+         - awake
+
 
 light_templates:
   private:

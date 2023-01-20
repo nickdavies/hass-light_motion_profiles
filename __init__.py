@@ -7,7 +7,7 @@ from homeassistant.const import (
 )
 
 from .schema_users_groups import USERS_GROUPS_SCHEMA, USERS_GROUPS_VALIDATIONS
-from .schema_motion_profiles import MOTION_PROFILES_SCHEMA
+from .schema_motion_profiles import MOTION_PROFILES_SCHEMA, MOTION_PROFILES_VALIDATIONS
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,6 +19,7 @@ CONFIG_SCHEMA = vol.Schema(
         DOMAIN: vol.All(
             vol.Schema({}).extend(USERS_GROUPS_SCHEMA).extend(MOTION_PROFILES_SCHEMA),
             *USERS_GROUPS_VALIDATIONS,
+            *MOTION_PROFILES_VALIDATIONS,
         )
     },
     extra=vol.ALLOW_EXTRA,

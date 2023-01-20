@@ -46,6 +46,12 @@ DEFAULT_PERSON_STATES = [
 ]
 
 
+def get_person_states(config):
+    return config.get(FIELD_SETTINGS, {}).get(
+        FIELD_PERSON_STATES, DEFAULT_PERSON_STATES
+    )
+
+
 def validate_group_members(group_name, groups, users, seen=None):
     if seen is None:
         seen = []
@@ -80,7 +86,7 @@ def validate_users_groups(config):
 
 def validate_states_and_icons(config):
     field_name = f"{FIELD_SETTINGS}->{FIELD_PERSON_STATES}"
-    person_states = config.get(FIELD_SETTINGS, {}).get(FIELD_PERSON_STATES, None)
+    person_states = get_person_states(config)
     if person_states is not None:
         if len(person_states) == 0:
             raise vol.Invalid(f"{field_name} must be a " "non-empty list of states")
