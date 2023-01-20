@@ -1,10 +1,12 @@
 import voluptuous as vol
+from collections import Counter
+
 from homeassistant.helpers import config_validation as cv
 
 
 # Top level fields
 FIELD_GROUPS = "groups"
-FIELD_SETTINGS = "settings"
+FIELD_SETTINGS = "user_group_settings"
 FIELD_USERS = "users"
 
 # Lower layer fields
@@ -13,6 +15,7 @@ FIELD_STATE_ICONS = "icons_state"
 FIELD_HOME_AWAY_ICONS = "icons_home_away"
 FIELD_EXISTS_ICON = "icon_exists"
 FIELD_TRACKING_ENTITY = "tracking_entity"
+FIELD_PERSON_STATES = "valid_person_states"
 
 FIELD_STATE_IF_UNKNOWN = "state_if_unknown"
 
@@ -33,15 +36,14 @@ HOME_AWAY_STATES = [
     HOME_AWAY_STATE_NOT_HOME,
 ]
 
-PERSON_STATES = [
+
+# defaults if reused in code
+DEFAULT_STATE_IF_UNKNOWN = PERSON_STATE_ABSENT
+DEFAULT_PERSON_STATES = [
     "asleep",
     "winddown",
     "awake",
 ]
-
-
-# defaults if reused in code
-DEFAULT_STATE_IF_UNKNOWN = PERSON_STATE_ABSENT
 
 
 def validate_group_members(group_name, groups, users, seen=None):
@@ -76,6 +78,45 @@ def validate_users_groups(config):
     return config
 
 
+def validate_states_and_icons(config):
+    field_name = f"{FIELD_SETTINGS}->{FIELD_PERSON_STATES}"
+    person_states = config.get(FIELD_SETTINGS, {}).get(FIELD_PERSON_STATES, None)
+    if person_states is not None:
+        if len(person_states) == 0:
+            raise vol.Invalid(f"{field_name} must be a " "non-empty list of states")
+    else:
+        person_states = DEFAULT_PERSON_STATES
+
+    duplicate_fields = {k for k, v in Counter(person_states).items() if v != 1}
+    if duplicate_fields:
+        raise vol.Invalid(
+            f"{field_name} has duplicate values: {','.join(duplicate_fields)}"
+        )
+
+    if PERSON_STATE_ABSENT in person_states:
+        raise vol.Invalid(
+            f"{field_name} contains reserved state name '{PERSON_STATE_ABSENT}' "
+            "please pick a different name"
+        )
+
+    for state in person_states:
+        if state in HOME_AWAY_STATES:
+            raise vol.Invalid(
+                f"{field_name}: person state '{state}' is also a "
+                "home/away state which isn't allowed"
+            )
+
+    valid_icon_names = set(person_states) | {PERSON_STATE_ABSENT}
+    for user, user_config in config.get(FIELD_USERS, {}).items():
+        for icon in user_config.get(FIELD_STATE_ICONS, {}):
+            if icon not in valid_icon_names:
+                raise vol.Invalid(
+                    f"User '{user}' has an invalid icon '{icon}' defined. Options are: "
+                    f"{','.join(valid_icon_names)}"
+                )
+    return config
+
+
 # For now we have no metadata about groups but we will define
 # them as dicts still so we can add some later if we need to
 GROUP_SCHEMA = vol.Schema(
@@ -91,7 +132,10 @@ SETTINGS_SCHEMA = vol.Schema(
         {
             vol.Optional(
                 FIELD_STATE_IF_UNKNOWN, default=DEFAULT_STATE_IF_UNKNOWN
-            ): cv.string
+            ): cv.string,
+            vol.Optional(FIELD_PERSON_STATES, default=DEFAULT_PERSON_STATES): [
+                cv.string
+            ],
         },
     )
 )
@@ -105,9 +149,7 @@ USER_SCHEMA = vol.Schema(
             vol.Optional(FIELD_HOME_AWAY_ICONS): vol.Schema(
                 {key: cv.string for key in HOME_AWAY_STATES}
             ),
-            vol.Optional(FIELD_STATE_ICONS): vol.Schema(
-                {key: cv.string for key in PERSON_STATES + [PERSON_STATE_ABSENT]}
-            ),
+            vol.Optional(FIELD_STATE_ICONS): vol.Schema({cv.string: cv.string}),
             vol.Optional(FIELD_TRACKING_ENTITY): cv.string,
         },
     )
@@ -121,4 +163,5 @@ USERS_GROUPS_SCHEMA = {
 
 USERS_GROUPS_VALIDATIONS = [
     validate_users_groups,
+    validate_states_and_icons,
 ]

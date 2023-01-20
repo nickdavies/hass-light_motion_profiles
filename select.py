@@ -3,11 +3,13 @@ from .entity_names import (
     person_state_entity,
 )
 from .schema_users_groups import (
+    DEFAULT_PERSON_STATES,
+    FIELD_HOME_AWAY_ICONS,
+    FIELD_PERSON_STATES,
+    FIELD_SETTINGS,
+    FIELD_STATE_ICONS,
     FIELD_USERS,
     HOME_AWAY_STATES,
-    PERSON_STATES,
-    FIELD_HOME_AWAY_ICONS,
-    FIELD_STATE_ICONS,
 )
 
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -24,12 +26,19 @@ async def async_setup_platform(
     discovery_info,
 ) -> None:
     user_sensors = []
+    person_states = discovery_info.get(FIELD_SETTINGS, {}).get(
+        FIELD_PERSON_STATES, DEFAULT_PERSON_STATES
+    )
     for user, user_config in discovery_info.get(FIELD_USERS, {}).items():
         user_sensors.append(
             HomeAwaySelect(user, icons=user_config.get(FIELD_HOME_AWAY_ICONS, {}))
         )
         user_sensors.append(
-            PersonStateSelect(user, icons=user_config.get(FIELD_STATE_ICONS, {}))
+            PersonStateSelect(
+                user,
+                person_states=person_states,
+                icons=user_config.get(FIELD_STATE_ICONS, {}),
+            )
         )
 
     async_add_entities(user_sensors)
@@ -61,9 +70,9 @@ class HomeAwaySelect(SelectEntity, RestoreEntity):
 
 
 class PersonStateSelect(SelectEntity, RestoreEntity):
-    def __init__(self, name, icons):
+    def __init__(self, name, person_states, icons):
         self._attr_name = person_state_entity(name, without_domain=True)
-        self._attr_options = list(PERSON_STATES)
+        self._attr_options = person_states
         self._attr_current_option = None
         self._icons = icons
 
