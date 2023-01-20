@@ -2,7 +2,7 @@ from .entity_names import (
     person_override_home_away_entity,
     person_state_entity,
 )
-from . import (
+from .schema import (
     FIELD_USERS,
 )
 

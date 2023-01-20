@@ -1,7 +1,7 @@
 from .entity_names import (
     person_exists_entity,
 )
-from . import (
+from .schema import (
     FIELD_USERS,
     FIELD_GUEST,
 )
