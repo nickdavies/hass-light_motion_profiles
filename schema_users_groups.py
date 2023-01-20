@@ -16,16 +16,21 @@ FIELD_TRACKING_ENTITY = "tracking_entity"
 
 FIELD_STATE_IF_UNKNOWN = "state_if_unknown"
 
+# A special state for a person to say they are not at home and should not be
+# a factor for determining group states
+PERSON_STATE_ABSENT = "absent"
 
-# defaults if reused in code
-DEFAULT_STATE_IF_UNKNOWN = "absent"
-
+# States listed here have special meaning to the code and hence have constants
+# to ensure they are all consistent
+HOME_AWAY_STATE_UNKNOWN = "unknown"
+HOME_AWAY_STATE_AUTO = "auto"
+HOME_AWAY_STATE_NOT_HOME = "not_home"
 
 HOME_AWAY_STATES = [
-    "auto",
-    "unknown",
+    HOME_AWAY_STATE_AUTO,
+    HOME_AWAY_STATE_UNKNOWN,
     "home",
-    "not_home",
+    HOME_AWAY_STATE_NOT_HOME,
 ]
 
 PERSON_STATES = [
@@ -33,6 +38,10 @@ PERSON_STATES = [
     "winddown",
     "awake",
 ]
+
+
+# defaults if reused in code
+DEFAULT_STATE_IF_UNKNOWN = PERSON_STATE_ABSENT
 
 
 def validate_group_members(group_name, groups, users, seen=None):
@@ -94,10 +103,10 @@ USER_SCHEMA = vol.Schema(
             vol.Optional(FIELD_GUEST, default=False): cv.boolean,
             vol.Optional(FIELD_EXISTS_ICON): cv.string,
             vol.Optional(FIELD_HOME_AWAY_ICONS): vol.Schema(
-                {key: cv.string for key in HOME_AWAY_STATES + ["unknown"]}
+                {key: cv.string for key in HOME_AWAY_STATES}
             ),
             vol.Optional(FIELD_STATE_ICONS): vol.Schema(
-                {key: cv.string for key in PERSON_STATES + ["absent"]}
+                {key: cv.string for key in PERSON_STATES + [PERSON_STATE_ABSENT]}
             ),
             vol.Optional(FIELD_TRACKING_ENTITY): cv.string,
         },

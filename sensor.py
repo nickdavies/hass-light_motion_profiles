@@ -2,6 +2,10 @@ import logging
 
 from . import GROUP_SEPARATOR
 from .schema_users_groups import (
+    PERSON_STATE_ABSENT,
+    HOME_AWAY_STATE_AUTO,
+    HOME_AWAY_STATE_NOT_HOME,
+    HOME_AWAY_STATE_UNKNOWN,
     FIELD_HOME_AWAY_ICONS,
     FIELD_STATE_IF_UNKNOWN,
     FIELD_STATE_ICONS,
@@ -124,7 +128,7 @@ class UserHomeAwaySensor(CalculatedSensor, SensorEntity):
 
     def calculate_current_state(self):
         override = self.hass.states.get(self._override_entity)
-        if override is not None and override.state != "auto":
+        if override is not None and override.state != HOME_AWAY_STATE_AUTO:
             return override.state
 
         if self._tracking_entity:
@@ -132,7 +136,7 @@ class UserHomeAwaySensor(CalculatedSensor, SensorEntity):
             if auto is not None:
                 return auto.state
 
-        return "unknown"
+        return HOME_AWAY_STATE_UNKNOWN
 
 
 class UserPresenceSensor(CalculatedSensor, SensorEntity):
@@ -161,13 +165,13 @@ class UserPresenceSensor(CalculatedSensor, SensorEntity):
         if self._exists_entity:
             exists = self.hass.states.get(self._exists_entity)
             if exists is None or exists.state == "off":
-                return "absent"
+                return PERSON_STATE_ABSENT
 
         home_away = self.hass.states.get(self._home_away_entity)
         if home_away is not None:
-            if home_away.state == "not_home":
-                return "absent"
-            if home_away.state.lower() == "unknown":
+            if home_away.state == HOME_AWAY_STATE_NOT_HOME:
+                return PERSON_STATE_ABSENT
+            if home_away.state.lower() == HOME_AWAY_STATE_UNKNOWN:
                 return self._state_if_unknown
 
         user_state = self.hass.states.get(self._state_entity)
@@ -220,6 +224,6 @@ class GroupPresenceSensor(CalculatedSensor, SensorEntity):
             else:
                 states.add(state)
         if len(states) != 1:
-            states.discard("absent")
+            states.discard(PERSON_STATE_ABSENT)
 
         return self.serialize(states)
