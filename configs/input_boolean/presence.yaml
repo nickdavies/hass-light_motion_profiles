@@ -1,13 +1,3 @@
-person_guest_1_exists:
-  name: Is guest_1 staying at the house?
-  icon: mdi:account-question
-  initial: false
-
-person_guest_2_exists:
-  name: Is guest_2 staying at the house?
-  icon: mdi:account-question
-  initial: false
-
 pretend_motion:
   name: A pretend motion occupancy
   icon: mdi:test-tube

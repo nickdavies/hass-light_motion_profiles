@@ -3,7 +3,7 @@ PERSON_OVERRIDE_HOME_AWAY_DOMAIN = "select"
 PERSON_PRESENCE_DOMAIN = "sensor"
 GROUP_PRESENCE_DOMAIN = "sensor"
 PERSON_STATE_DOMAIN = "select"
-EXISTS_ENTITY_DOMAIN = "input_boolean"
+EXISTS_ENTITY_DOMAIN = "switch"
 
 
 def _build(suffix, domain, without_domain):
