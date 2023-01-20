@@ -61,4 +61,53 @@ light_profiles:
     enabled: true
     brightness_pct: 5
 
+light_rule_templates:
+   # For any area thats generally owned by a single group (because this is an exhaustive match).
+   # it prefers the "most awake" state in the options. So this wouldn't be suitable for anything
+   # that is sensitive
+   prefer_awake:
+     awake: full
+     winddown: dim
+     asleep: disable
+     asleep_awake: full
+     asleep_winddown: dim
+     asleep_winddown_awake: full
+     winddown_awake: full
 
+   # For any area thats generally owned by a single group (because this is an exhaustive match).
+   # it prefers the "most asleep" state in the options. So this wouldn't be suitable for anything
+   # that is pretty private and wont effect others
+   prefer_asleep:
+     awake: full
+     winddown: dim
+     asleep: disable
+     asleep_awake: disable
+     asleep_winddown: disable
+     asleep_winddown_awake: disable
+     winddown_awake: dim
+
+light_templates:
+  private:
+    no_motion_wait: 180
+    default_profile: disable
+    no_motion_profile: disable
+    light_profile_rule_sets:
+        - group: everyone
+          rule_template: prefer_awake
+  communal:
+    no_motion_wait: 180
+    default_profile: disable
+    no_motion_profile: disable
+    light_profile_rule_sets:
+        - group: everyone
+          rule_template: prefer_awake
+  sensitive:
+    no_motion_wait: 180
+    default_profile: disable
+    no_motion_profile: disable
+    light_profile_rule_sets:
+        - group: everyone
+          rule_template: prefer_asleep
+
+
+light_bindings:
