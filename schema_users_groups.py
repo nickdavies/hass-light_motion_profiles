@@ -82,13 +82,12 @@ USER_SCHEMA = vol.Schema(
     )
 )
 
-TOP_LEVEL_SCHEMA = vol.Schema(
-    vol.All(
-        {
-            vol.Optional(FIELD_GROUPS): {cv.string: GROUP_SCHEMA},
-            vol.Optional(FIELD_SETTINGS): SETTINGS_SCHEMA,
-            vol.Optional(FIELD_USERS): {cv.string: USER_SCHEMA},
-        },
-        validate_users_groups,
-    )
-)
+USERS_GROUPS_SCHEMA = {
+    vol.Optional(FIELD_GROUPS): {cv.string: GROUP_SCHEMA},
+    vol.Optional(FIELD_SETTINGS): SETTINGS_SCHEMA,
+    vol.Optional(FIELD_USERS): {cv.string: USER_SCHEMA},
+}
+
+USERS_GROUPS_VALIDATIONS = [
+    validate_users_groups,
+]

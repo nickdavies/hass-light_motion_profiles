@@ -1,6 +1,6 @@
 import logging
 
-from .schema import (
+from .schema_users_groups import (
     FIELD_STATE_IF_UNKNOWN,
     FIELD_SETTINGS,
     FIELD_GUEST,

@@ -42,3 +42,23 @@ groups:
   everyone:
     primary:
     guests:
+
+light_profiles:
+  enable:
+    enabled: true
+  disable:
+    enabled: false
+  full:
+    enabled: true
+    brightness_pct: 100
+  half:
+    enabled: true
+    brightness_pct: 50
+  dim:
+    enabled: true
+    brightness_pct: 25
+  night_light:
+    enabled: true
+    brightness_pct: 5
+
+

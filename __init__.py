@@ -6,7 +6,8 @@ from homeassistant.const import (
     Platform,
 )
 
-from .schema import TOP_LEVEL_SCHEMA
+from .schema_users_groups import USERS_GROUPS_SCHEMA, USERS_GROUPS_VALIDATIONS
+from .schema_motion_profiles import MOTION_PROFILES_SCHEMA
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -15,7 +16,10 @@ DOMAIN = "light_motion_profiles"
 
 CONFIG_SCHEMA = vol.Schema(
     {
-        DOMAIN: TOP_LEVEL_SCHEMA,
+        DOMAIN: vol.All(
+            vol.Schema({}).extend(USERS_GROUPS_SCHEMA).extend(MOTION_PROFILES_SCHEMA),
+            *USERS_GROUPS_VALIDATIONS,
+        )
     },
     extra=vol.ALLOW_EXTRA,
 )
