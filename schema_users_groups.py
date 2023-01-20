@@ -9,7 +9,9 @@ FIELD_USERS = "users"
 
 # Lower layer fields
 FIELD_GUEST = "guest"
-FIELD_ICONS = "icons"
+FIELD_STATE_ICONS = "icons_state"
+FIELD_HOME_AWAY_ICONS = "icons_home_away"
+FIELD_EXISTS_ICON = "icon_exists"
 FIELD_TRACKING_ENTITY = "tracking_entity"
 
 FIELD_STATE_IF_UNKNOWN = "state_if_unknown"
@@ -17,6 +19,20 @@ FIELD_STATE_IF_UNKNOWN = "state_if_unknown"
 
 # defaults if reused in code
 DEFAULT_STATE_IF_UNKNOWN = "absent"
+
+
+HOME_AWAY_STATES = [
+    "auto",
+    "unknown",
+    "home",
+    "not_home",
+]
+
+PERSON_STATES = [
+    "asleep",
+    "winddown",
+    "awake",
+]
 
 
 def validate_group_members(group_name, groups, users, seen=None):
@@ -76,7 +92,13 @@ USER_SCHEMA = vol.Schema(
         None,
         {
             vol.Optional(FIELD_GUEST, default=False): cv.boolean,
-            vol.Optional(FIELD_ICONS): vol.Schema({cv.string: cv.string}),
+            vol.Optional(FIELD_EXISTS_ICON): cv.string,
+            vol.Optional(FIELD_HOME_AWAY_ICONS): vol.Schema(
+                {key: cv.string for key in HOME_AWAY_STATES + ["unknown"]}
+            ),
+            vol.Optional(FIELD_STATE_ICONS): vol.Schema(
+                {key: cv.string for key in PERSON_STATES + ["absent"]}
+            ),
             vol.Optional(FIELD_TRACKING_ENTITY): cv.string,
         },
     )

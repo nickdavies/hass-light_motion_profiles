@@ -4,6 +4,7 @@ from .entity_names import (
 from .schema_users_groups import (
     FIELD_USERS,
     FIELD_GUEST,
+    FIELD_EXISTS_ICON,
 )
 
 from homeassistant.const import STATE_ON
@@ -24,14 +25,17 @@ async def async_setup_platform(
     user_sensors = []
     for user, user_config in discovery_info.get(FIELD_USERS, {}).items():
         if user_config.get(FIELD_GUEST, False):
-            user_sensors.append(GuestExistsSwitch(user))
+            user_sensors.append(
+                GuestExistsSwitch(user, user_config.get(FIELD_EXISTS_ICON))
+            )
 
     async_add_entities(user_sensors)
 
 
 class GuestExistsSwitch(SwitchEntity, RestoreEntity):
-    def __init__(self, name):
+    def __init__(self, name, icon):
         self._attr_name = person_exists_entity(name, without_domain=True)
+        self._attr_icon = icon
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""

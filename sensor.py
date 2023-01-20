@@ -2,7 +2,9 @@ import logging
 
 from . import GROUP_SEPARATOR
 from .schema_users_groups import (
+    FIELD_HOME_AWAY_ICONS,
     FIELD_STATE_IF_UNKNOWN,
+    FIELD_STATE_ICONS,
     FIELD_SETTINGS,
     FIELD_GUEST,
     FIELD_GROUPS,
@@ -44,6 +46,7 @@ async def async_setup_platform(
         user_sensors.append(
             UserHomeAwaySensor(
                 name=user,
+                icons=user_config.get(FIELD_HOME_AWAY_ICONS, {}),
                 tracking_entity=user_config.get(FIELD_TRACKING_ENTITY),
             )
         )
@@ -51,6 +54,7 @@ async def async_setup_platform(
             UserPresenceSensor(
                 name=user,
                 state_if_unknown=state_if_unknown,
+                icons=user_config.get(FIELD_STATE_ICONS, {}),
                 guest=user_config.get(FIELD_GUEST, False),
             )
         )
@@ -74,11 +78,14 @@ class CalculatedSensor:
     def __init__(self):
         super().__init__()
         self._attr_native_value = None
+        self._icons = None
 
     def _force_update(self):
         new_state = self.calculate_current_state()
         _LOGGER.info(f"new_state for {self._attr_name}={new_state}")
         self._attr_native_value = new_state
+        if self._icons is not None:
+            self._attr_icon = self._icons.get(new_state)
         self.async_write_ha_state()
 
     async def async_added_to_hass(self):
@@ -101,11 +108,13 @@ class UserHomeAwaySensor(CalculatedSensor, SensorEntity):
     def __init__(
         self,
         name,
+        icons,
         tracking_entity=None,
     ):
         super().__init__()
 
         self._attr_name = person_home_away_entity(name, without_domain=True)
+        self._icons = icons
         self._tracking_entity = tracking_entity
         self._override_entity = person_override_home_away_entity(name)
 
@@ -131,10 +140,12 @@ class UserPresenceSensor(CalculatedSensor, SensorEntity):
         self,
         name,
         state_if_unknown,
+        icons,
         guest=False,
     ):
         super().__init__()
         self._attr_name = person_presence_entity(name, without_domain=True)
+        self._icons = icons
 
         self._home_away_entity = person_home_away_entity(name)
         self._state_entity = person_state_entity(name)

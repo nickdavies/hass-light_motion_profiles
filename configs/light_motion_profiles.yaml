@@ -1,34 +1,43 @@
 users:
   nick:
     guest: false
-    icons:
+    icons_home_away:
+      auto: mdi:auto-fix
+      home: mdi:home
+      not_home: mdi:home-off
+      unknown: mdi:home-search
+    icons_state:
       awake: mdi:human-male
       winddown: mdi:alien
       asleep: mdi:bed
+      absent: mdi:cancel
     tracking_entity: person.nick_davies
 
   partner:
     guest: false
-    icons:
+    icons_state:
       awake: mdi:human-female
       winddown: mdi:alien-outline
       asleep: mdi:bed-outline
+      absent: mdi:cancel
 
   guest_1:
     guest: true
-    icons:
-      exists: mdi:account-question
+    icon_exists: mdi:account-question
+    icons_state:
       awake: mdi:account-clock
       winddown: mdi:arrow-down-bold-box
       asleep: mdi:bed-double
+      absent: mdi:cancel
 
   guest_2:
     guest: true
-    icons:
-      exists: mdi:account-question
-      awake: mdi:account-clock
-      winddown: mdi:arrow-down-bold-box
-      asleep: mdi:bed-double
+    icon_exists: mdi:account-question-outline
+    icons_state:
+      awake: mdi:account-clock-outline
+      winddown: mdi:arrow-down-bold-box-outline
+      asleep: mdi:bed-double-outline
+      absent: mdi:cancel
 
 groups:
   primary:
