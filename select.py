@@ -12,18 +12,18 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-HOME_AWAY_STATES = {
+HOME_AWAY_STATES = [
     "auto",
     "unknown",
     "home",
     "not_home",
-}
+]
 
-PERSON_STATES = {
-    "awake",
-    "winddown",
+PERSON_STATES = [
     "asleep",
-}
+    "winddown",
+    "awake",
+]
 
 
 async def async_setup_platform(
