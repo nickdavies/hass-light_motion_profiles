@@ -47,9 +47,13 @@ DEFAULT_PERSON_STATES = [
 
 
 def get_person_states(config):
-    return config.get(FIELD_USER_GROUP_SETTINGS, {}).get(
-        FIELD_PERSON_STATES, DEFAULT_PERSON_STATES
-    )
+    """
+    This function can be used on non-processed configs to
+    get the person states from the config applying defaults
+    """
+
+    settings = config.get(FIELD_USER_GROUP_SETTINGS) or {}
+    return settings.get(FIELD_PERSON_STATES, DEFAULT_PERSON_STATES)
 
 
 def validate_group_members(group_name, groups, users, seen=None):
@@ -123,6 +127,29 @@ def validate_states_and_icons(config):
     return config
 
 
+def preprocess_users_groups_config(config):
+    groups = config[FIELD_GROUPS] = config.get(FIELD_GROUPS) or {}
+    for group_name in groups:
+        # Groups may be None instead of an empty dict
+        groups[group_name] = groups[group_name] or {}
+
+    # Settings could be present but empty (which will be an empty dict)
+    settings = config[FIELD_USER_GROUP_SETTINGS] = (
+        config.get(FIELD_USER_GROUP_SETTINGS) or {}
+    )
+    settings.setdefault(FIELD_STATE_IF_UNKNOWN, DEFAULT_STATE_IF_UNKNOWN)
+    settings.setdefault(FIELD_PERSON_STATES, DEFAULT_PERSON_STATES)
+
+    users = config[FIELD_USERS] = config.get(FIELD_USERS) or {}
+    for name, user_config in users.items():
+        user_config.setdefault(FIELD_GUEST, False)
+        user_config.setdefault(FIELD_HOME_AWAY_ICONS, {})
+        user_config.setdefault(FIELD_STATE_ICONS, {})
+        user_config.setdefault(FIELD_TRACKING_ENTITY, None)
+
+    return config
+
+
 # For now we have no metadata about groups but we will define
 # them as dicts still so we can add some later if we need to
 GROUP_SCHEMA = vol.Schema(
@@ -136,12 +163,8 @@ SETTINGS_SCHEMA = vol.Schema(
     vol.Any(
         None,
         {
-            vol.Optional(
-                FIELD_STATE_IF_UNKNOWN, default=DEFAULT_STATE_IF_UNKNOWN
-            ): cv.string,
-            vol.Optional(FIELD_PERSON_STATES, default=DEFAULT_PERSON_STATES): [
-                cv.string
-            ],
+            vol.Optional(FIELD_STATE_IF_UNKNOWN): cv.string,
+            vol.Optional(FIELD_PERSON_STATES): [cv.string],
         },
     )
 )
@@ -150,7 +173,7 @@ USER_SCHEMA = vol.Schema(
     vol.Any(
         None,
         {
-            vol.Optional(FIELD_GUEST, default=False): cv.boolean,
+            vol.Optional(FIELD_GUEST): cv.boolean,
             vol.Optional(FIELD_EXISTS_ICON): cv.string,
             vol.Optional(FIELD_HOME_AWAY_ICONS): vol.Schema(
                 {key: cv.string for key in HOME_AWAY_STATES}

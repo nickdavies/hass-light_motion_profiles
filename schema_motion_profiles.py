@@ -130,6 +130,22 @@ def validate_light_templates_and_bindings(config):
     return config
 
 
+def preprocess_motion_profiles_config(config):
+    config[FIELD_LIGHT_PROFILES] = config.get(FIELD_LIGHT_PROFILES) or {}
+    config[FIELD_LIGHT_RULE_TEMPLATES] = config.get(FIELD_LIGHT_RULE_TEMPLATES) or {}
+    config[FIELD_LIGHT_TEMPLATES] = config.get(FIELD_LIGHT_TEMPLATES) or {}
+
+    config[FIELD_LIGHT_BINDINGS] = config.get(FIELD_LIGHT_BINDINGS) or {}
+
+    settings = config[FIELD_LIGHT_PROFILE_SETTINGS] = (
+        config.get(FIELD_LIGHT_PROFILE_SETTINGS) or {}
+    )
+    settings.setdefault(FIELD_ICON_GLOBAL_KILLSWITCH, DEFAULT_GLOBAL_KILLSWITCH_ICON)
+    settings.setdefault(FIELD_ICON_KILLSWITCH, DEFAULT_KILLSWITCH_ICON)
+
+    return config
+
+
 COMMON_LIGHT_FIELDS = {
     vol.Optional(FIELD_NO_MOTION_WAIT): cv.positive_int,
     vol.Optional(FIELD_NO_MOTION_PROFILE): cv.string,

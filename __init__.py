@@ -6,8 +6,16 @@ from homeassistant.const import (
     Platform,
 )
 
-from .schema_users_groups import USERS_GROUPS_SCHEMA, USERS_GROUPS_VALIDATIONS
-from .schema_motion_profiles import MOTION_PROFILES_SCHEMA, MOTION_PROFILES_VALIDATIONS
+from .schema_users_groups import (
+    USERS_GROUPS_SCHEMA,
+    USERS_GROUPS_VALIDATIONS,
+    preprocess_users_groups_config,
+)
+from .schema_motion_profiles import (
+    MOTION_PROFILES_SCHEMA,
+    MOTION_PROFILES_VALIDATIONS,
+    preprocess_motion_profiles_config,
+)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,10 +36,16 @@ CONFIG_SCHEMA = vol.Schema(
 GROUP_SEPARATOR = ","
 
 
+def preprocess_config(config):
+    config = preprocess_users_groups_config(config)
+    config = preprocess_motion_profiles_config(config)
+    return config
+
+
 async def async_setup(hass, whole_config):
     hass.states.async_set("light_motion_profiles.hello_world", "Hello!")
 
-    config = whole_config[DOMAIN]
+    config = preprocess_config(whole_config[DOMAIN])
 
     await discovery.async_load_platform(
         hass,

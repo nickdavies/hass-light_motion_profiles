@@ -13,8 +13,6 @@ from .schema_motion_profiles import (
     FIELD_LIGHT_PROFILE_SETTINGS,
     FIELD_ICON_KILLSWITCH,
     FIELD_ICON_GLOBAL_KILLSWITCH,
-    DEFAULT_KILLSWITCH_ICON,
-    DEFAULT_GLOBAL_KILLSWITCH_ICON,
 )
 
 from homeassistant.const import STATE_ON
@@ -33,30 +31,26 @@ async def async_setup_platform(
     discovery_info,
 ) -> None:
     user_switches = []
-    for user, user_config in discovery_info.get(FIELD_USERS, {}).items():
-        if user_config.get(FIELD_GUEST, False):
+    for user, user_config in discovery_info[FIELD_USERS].items():
+        if user_config[FIELD_GUEST]:
             user_switches.append(
-                GuestExistsSwitch(user, user_config.get(FIELD_EXISTS_ICON))
+                GuestExistsSwitch(user, user_config[FIELD_EXISTS_ICON])
             )
 
     async_add_entities(user_switches)
 
     killswitches = []
 
-    settings = discovery_info.get(FIELD_LIGHT_PROFILE_SETTINGS, {})
+    settings = discovery_info[FIELD_LIGHT_PROFILE_SETTINGS]
 
     killswitches.append(
         KillSwitch(
-            MOTION_KILLSWITCH_GLOBAL,
-            icon=settings.get(
-                FIELD_ICON_GLOBAL_KILLSWITCH,
-                DEFAULT_GLOBAL_KILLSWITCH_ICON,
-            ),
+            MOTION_KILLSWITCH_GLOBAL, icon=settings[FIELD_ICON_GLOBAL_KILLSWITCH]
         )
     )
 
-    killswitch_icon = settings.get(FIELD_ICON_KILLSWITCH, DEFAULT_KILLSWITCH_ICON)
-    for binding_name, _ in discovery_info.get(FIELD_LIGHT_BINDINGS).items():
+    killswitch_icon = settings[FIELD_ICON_KILLSWITCH]
+    for binding_name, _ in discovery_info[FIELD_LIGHT_BINDINGS].items():
         killswitches.append(KillSwitch(binding_name, icon=killswitch_icon))
 
     async_add_entities(killswitches)

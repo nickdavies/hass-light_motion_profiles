@@ -14,7 +14,6 @@ from .schema_users_groups import (
     FIELD_GROUPS,
     FIELD_USERS,
     FIELD_TRACKING_ENTITY,
-    DEFAULT_STATE_IF_UNKNOWN,
 )
 from .entity_names import (
     group_presence_entity,
@@ -41,33 +40,31 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info,
 ) -> None:
-    state_if_unknown = discovery_info.get(FIELD_USER_GROUP_SETTINGS, {}).get(
-        FIELD_STATE_IF_UNKNOWN, DEFAULT_STATE_IF_UNKNOWN
-    )
+    state_if_unknown = discovery_info[FIELD_USER_GROUP_SETTINGS][FIELD_STATE_IF_UNKNOWN]
 
     user_sensors = []
-    for user, user_config in discovery_info.get(FIELD_USERS, {}).items():
+    for user, user_config in discovery_info[FIELD_USERS].items():
         user_sensors.append(
             UserHomeAwaySensor(
                 name=user,
-                icons=user_config.get(FIELD_HOME_AWAY_ICONS, {}),
-                tracking_entity=user_config.get(FIELD_TRACKING_ENTITY),
+                icons=user_config[FIELD_HOME_AWAY_ICONS],
+                tracking_entity=user_config[FIELD_TRACKING_ENTITY],
             )
         )
         user_sensors.append(
             UserPresenceSensor(
                 name=user,
                 state_if_unknown=state_if_unknown,
-                icons=user_config.get(FIELD_STATE_ICONS, {}),
-                guest=user_config.get(FIELD_GUEST, False),
+                icons=user_config[FIELD_STATE_ICONS],
+                guest=user_config[FIELD_GUEST],
             )
         )
 
     async_add_entities(user_sensors)
 
-    users = set(discovery_info.get(FIELD_USERS, {}))
+    users = set(discovery_info[FIELD_USERS])
     group_sensors = []
-    for group_name, members in discovery_info.get(FIELD_GROUPS, {}).items():
+    for group_name, members in discovery_info[FIELD_GROUPS].items():
         members = {name: name in users for name in members}
         group_sensors.append(
             GroupPresenceSensor(
