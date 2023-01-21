@@ -7,6 +7,7 @@ FIELD_LIGHT_PROFILES = "light_profiles"
 FIELD_LIGHT_RULE_TEMPLATES = "light_rule_templates"
 FIELD_LIGHT_TEMPLATES = "light_templates"
 FIELD_LIGHT_BINDINGS = "light_bindings"
+FIELD_LIGHT_PROFILE_SETTINGS = "light_profile_settings"
 
 FIELD_ENABLED = "enabled"
 FIELD_BRIGHTNESS_PCT = "brightness_pct"
@@ -21,6 +22,9 @@ FIELD_LIGHTS = "lights"
 FIELD_MOTION_SENSORS = "motion_sensors"
 FIELD_LIGHT_TEMPLATE = "light_template"
 
+FIELD_ICON_GLOBAL_KILLSWITCH = "icon_global_killswitch"
+FIELD_ICON_KILLSWITCH = "icon_killswitch"
+
 FIELD_PROFILE = "profile"
 FIELD_STATES = "states"
 FIELD_MATCH_TYPE = "match_type"
@@ -28,6 +32,10 @@ FIELD_MATCH_TYPE = "match_type"
 
 MATCH_TYPE_EXACT = "exact"
 MATCH_TYPES = [MATCH_TYPE_EXACT, "any", "all"]
+
+MOTION_KILLSWITCH_GLOBAL = "global"
+DEFAULT_GLOBAL_KILLSWITCH_ICON = "mdi:cancel"
+DEFAULT_KILLSWITCH_ICON = "mdi:motion-sensor-off"
 
 
 def validate_light_rule_templates(config):
@@ -99,6 +107,11 @@ def validate_light_templates_and_bindings(config):
 
     light_templates = set(config.get(FIELD_LIGHT_TEMPLATES))
     for binding_name, binding_config in config.get(FIELD_LIGHT_BINDINGS).items():
+        if binding_name == MOTION_KILLSWITCH_GLOBAL:
+            raise cv.Invalid(
+                f"Light binding '{binding_name}' conflicts with global killswitch named "
+                f"'{MOTION_KILLSWITCH_GLOBAL}'"
+            )
         validate_common_light_fields(
             binding_name,
             binding_config,
@@ -164,11 +177,22 @@ LIGHT_PROFILE_SCHEMA = vol.Schema(
     }
 )
 
+SETTINGS_SCHEMA = vol.Schema(
+    vol.Any(
+        None,
+        {
+            vol.Optional(FIELD_ICON_GLOBAL_KILLSWITCH): cv.string,
+            vol.Optional(FIELD_ICON_KILLSWITCH): cv.string,
+        },
+    )
+)
+
 MOTION_PROFILES_SCHEMA = {
     vol.Optional(FIELD_LIGHT_PROFILES): {cv.string: LIGHT_PROFILE_SCHEMA},
     vol.Optional(FIELD_LIGHT_RULE_TEMPLATES): {cv.string: LIGHT_RULE_TEMPLATE_SCHEMA},
     vol.Optional(FIELD_LIGHT_TEMPLATES): {cv.string: LIGHT_TEMPLATE_SCHEMA},
     vol.Optional(FIELD_LIGHT_BINDINGS): {cv.string: LIGHT_BINDINGS},
+    vol.Optional(FIELD_LIGHT_PROFILE_SETTINGS): SETTINGS_SCHEMA,
 }
 
 MOTION_PROFILES_VALIDATIONS = [
