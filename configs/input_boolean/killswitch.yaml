@@ -1,8 +1,0 @@
-killswitch_motion_global:
-  name: A killswitch for all motion sensors
-  icon: mdi:cancel
-  initial: false
-
-killswitch_motion_motion_testing:
-  name: A killswitch for motion_testing motion sensing
-  icon: mdi:motion-sensor-off
