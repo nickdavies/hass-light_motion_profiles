@@ -6,7 +6,7 @@ from homeassistant.helpers import config_validation as cv
 
 # Top level fields
 FIELD_GROUPS = "groups"
-FIELD_SETTINGS = "user_group_settings"
+FIELD_USER_GROUP_SETTINGS = "user_group_settings"
 FIELD_USERS = "users"
 
 # Lower layer fields
@@ -47,7 +47,7 @@ DEFAULT_PERSON_STATES = [
 
 
 def get_person_states(config):
-    return config.get(FIELD_SETTINGS, {}).get(
+    return config.get(FIELD_USER_GROUP_SETTINGS, {}).get(
         FIELD_PERSON_STATES, DEFAULT_PERSON_STATES
     )
 
@@ -85,7 +85,7 @@ def validate_users_groups(config):
 
 
 def validate_states_and_icons(config):
-    field_name = f"{FIELD_SETTINGS}->{FIELD_PERSON_STATES}"
+    field_name = f"{FIELD_USER_GROUP_SETTINGS}->{FIELD_PERSON_STATES}"
     person_states = get_person_states(config)
     if person_states is not None:
         if len(person_states) == 0:
@@ -163,7 +163,7 @@ USER_SCHEMA = vol.Schema(
 
 USERS_GROUPS_SCHEMA = {
     vol.Optional(FIELD_GROUPS): {cv.string: GROUP_SCHEMA},
-    vol.Optional(FIELD_SETTINGS): SETTINGS_SCHEMA,
+    vol.Optional(FIELD_USER_GROUP_SETTINGS): SETTINGS_SCHEMA,
     vol.Optional(FIELD_USERS): {cv.string: USER_SCHEMA},
 }
 

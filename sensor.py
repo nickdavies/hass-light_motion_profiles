@@ -9,7 +9,7 @@ from .schema_users_groups import (
     FIELD_HOME_AWAY_ICONS,
     FIELD_STATE_IF_UNKNOWN,
     FIELD_STATE_ICONS,
-    FIELD_SETTINGS,
+    FIELD_USER_GROUP_SETTINGS,
     FIELD_GUEST,
     FIELD_GROUPS,
     FIELD_USERS,
@@ -41,7 +41,7 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info,
 ) -> None:
-    state_if_unknown = discovery_info.get(FIELD_SETTINGS, {}).get(
+    state_if_unknown = discovery_info.get(FIELD_USER_GROUP_SETTINGS, {}).get(
         FIELD_STATE_IF_UNKNOWN, DEFAULT_STATE_IF_UNKNOWN
     )
 
