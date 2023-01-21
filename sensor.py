@@ -76,15 +76,17 @@ async def async_setup_platform(
 
 
 class CalculatedSensor:
+    PRIMARY_ATTR = "_attr_native_value"
+
     def __init__(self):
         super().__init__()
-        self._attr_native_value = None
+        setattr(self, self.PRIMARY_ATTR, None)
         self._icons = None
 
     def _force_update(self):
         new_state = self.calculate_current_state()
         _LOGGER.info(f"new_state for {self._attr_name}={new_state}")
-        self._attr_native_value = new_state
+        setattr(self, self.PRIMARY_ATTR, new_state)
         if self._icons is not None:
             self._attr_icon = self._icons.get(new_state)
         self.async_write_ha_state()

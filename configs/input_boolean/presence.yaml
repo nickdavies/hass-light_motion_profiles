@@ -3,3 +3,13 @@ pretend_motion:
   icon: mdi:test-tube
   initial: false
 
+pretend_motion_2:
+  name: A pretend motion occupancy
+  icon: mdi:test-tube
+  initial: false
+
+pretend_motion_3:
+  name: A pretend motion occupancy
+  icon: mdi:test-tube
+  initial: false
+

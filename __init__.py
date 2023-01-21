@@ -71,5 +71,13 @@ async def async_setup(hass, whole_config):
         whole_config,
     )
 
+    await discovery.async_load_platform(
+        hass,
+        Platform.BINARY_SENSOR,
+        DOMAIN,
+        config,
+        whole_config,
+    )
+
     # Return boolean to indicate that initialization was successful.
     return True

@@ -5,6 +5,7 @@ GROUP_PRESENCE_DOMAIN = "sensor"
 PERSON_STATE_DOMAIN = "select"
 EXISTS_ENTITY_DOMAIN = "switch"
 KILLSWITCH_ENTITY_DOMAIN = "switch"
+MOTION_SENSOR_GROUP_DOMIAN = "binary_sensor"
 
 
 def _build(suffix, domain, without_domain):
@@ -57,3 +58,9 @@ def person_exists_entity(name, without_domain=False):
 
 def killswitch_entity(name, without_domain=False):
     return _build(f"killswitch_motion_{name}", KILLSWITCH_ENTITY_DOMAIN, without_domain)
+
+
+def motion_sensor_group_entity(name, without_domain=False):
+    return _build(
+        f"motion_sensor_group_{name}", MOTION_SENSOR_GROUP_DOMIAN, without_domain
+    )
