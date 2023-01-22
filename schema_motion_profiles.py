@@ -2,12 +2,21 @@ import voluptuous as vol
 from homeassistant.helpers import config_validation as cv
 
 from .schema_users_groups import get_person_states, FIELD_USERS, FIELD_GROUPS
+from .entity_names import motion_sensor_group_entity
+
 
 FIELD_LIGHT_PROFILES = "light_profiles"
 FIELD_LIGHT_RULE_TEMPLATES = "light_rule_templates"
 FIELD_LIGHT_TEMPLATES = "light_templates"
 FIELD_LIGHT_BINDINGS = "light_bindings"
 FIELD_LIGHT_PROFILE_SETTINGS = "light_profile_settings"
+
+# Automatically generated top level field. Not valid in config
+FIELD_MATERIALIZED_BINDINGS = "materialized_bindings"
+FIELD_RULES = "field_rules"
+
+# Derived fields from materializing
+FIELD_MOTION_SENSOR_ENTITY = "motion_sensor_entity"
 
 FIELD_ENABLED = "enabled"
 FIELD_BRIGHTNESS_PCT = "brightness_pct"
@@ -127,10 +136,97 @@ def validate_light_templates_and_bindings(config):
                 f"'{light_template}'"
             )
 
+    # Lastly we make sure we can materialize the binding configs. This checks for things
+    # like fields existing in either the template or directly on the binding but not
+    # missing from both
+    materialize_binding(config)
+
     return config
 
 
+def materialize_binding(whole_config):
+    materialized = {}
+    for binding_name, raw_config in whole_config.get(FIELD_LIGHT_BINDINGS).items():
+        out_config = {}
+
+        # For now no validation on lights
+        out_config[FIELD_LIGHTS] = raw_config[FIELD_LIGHTS]
+
+        # We copy over the motion sensors field but we also build a single new
+        # field for the entity to use for the motion sensing
+        out_config[FIELD_MOTION_SENSORS] = raw_config[FIELD_MOTION_SENSORS]
+        if isinstance(raw_config[FIELD_MOTION_SENSORS], list):
+            out_config[FIELD_MOTION_SENSOR_ENTITY] = motion_sensor_group_entity(
+                binding_name
+            )
+        else:
+            out_config[FIELD_MOTION_SENSOR_ENTITY] = raw_config[FIELD_MOTION_SENSORS]
+
+        # Next merge the template and directly specified fields. Preferring the the
+        # direct fields if they exist. A field must be on either the template or the
+        # rule itself otherwise it's invalid
+        template = {}
+        template_name = raw_config[FIELD_LIGHT_TEMPLATE]
+        if template_name:
+            # this is validated elsewhere so we still call .get in case this is run
+            # before that validation is
+            template = whole_config[FIELD_LIGHT_TEMPLATES].get(template_name, {})
+
+        fields = [
+            FIELD_NO_MOTION_WAIT,
+            FIELD_NO_MOTION_PROFILE,
+            FIELD_DEFAULT_PROFILE,
+            FIELD_LIGHT_PROFILE_RULE_SETS,
+        ]
+
+        for field in fields:
+            direct_value = raw_config.get(field, None)
+            template_value = template.get(field, None)
+
+            value = None
+            if direct_value is not None:
+                value = direct_value
+            elif template_value is not None:
+                value = template_value
+            else:
+                raise vol.Invalid(
+                    f"Light binding '{binding_name}' has no field '{field}' and neither "
+                    f"does it's template {template_name}"
+                )
+
+            out_config[field] = value
+
+        # At this point we have copied over all the fields and resolved the fields from
+        # the FIELD_LIGHT_TEMPLATE if there is one.
+        #
+        # Next we need to flatten out the rules in FIELD_LIGHT_PROFILE_RULE_SETS with the
+        # values found in FIELD_LIGHT_RULE_TEMPLATES if they aren't directly added to the
+        # config
+        all_rules = whole_config[FIELD_LIGHT_RULE_TEMPLATES]
+        light_rules = []
+        # We can use out_config here because we have resolved the template values above
+        for rule in out_config[FIELD_LIGHT_PROFILE_RULE_SETS]:
+            light_rules.append(
+                {
+                    FIELD_GROUP: rule[FIELD_GROUP],
+                    FIELD_RULE_TEMPLATE: rule[FIELD_RULE_TEMPLATE],
+                    FIELD_RULES: all_rules[rule[FIELD_RULE_TEMPLATE]],
+                }
+            )
+
+        out_config[FIELD_LIGHT_PROFILE_RULE_SETS] = light_rules
+
+        # A this point we have flattened out everything except the light profiles which
+        # we won't do here because the output of the generated entity will be which
+        # profile should be active
+        materialized[binding_name] = out_config
+
+    return materialized
+
+
 def preprocess_motion_profiles_config(config):
+    config[FIELD_MATERIALIZED_BINDINGS] = materialize_binding(config)
+
     config[FIELD_LIGHT_PROFILES] = config.get(FIELD_LIGHT_PROFILES) or {}
     config[FIELD_LIGHT_RULE_TEMPLATES] = config.get(FIELD_LIGHT_RULE_TEMPLATES) or {}
     config[FIELD_LIGHT_TEMPLATES] = config.get(FIELD_LIGHT_TEMPLATES) or {}
