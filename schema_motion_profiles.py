@@ -2,7 +2,11 @@ import voluptuous as vol
 from homeassistant.helpers import config_validation as cv
 
 from .schema_users_groups import get_person_states, FIELD_USERS, FIELD_GROUPS
-from .entity_names import motion_sensor_group_entity
+from .entity_names import (
+    group_presence_entity,
+    motion_sensor_group_entity,
+    person_presence_entity,
+)
 
 
 FIELD_LIGHT_PROFILES = "light_profiles"
@@ -13,7 +17,8 @@ FIELD_LIGHT_PROFILE_SETTINGS = "light_profile_settings"
 
 # Automatically generated top level field. Not valid in config
 FIELD_MATERIALIZED_BINDINGS = "materialized_bindings"
-FIELD_RULES = "field_rules"
+FIELD_USER_OR_GROUP_ENTITY = "user_or_group_entity"
+FIELD_RULES = "rules"
 
 # Derived fields from materializing
 FIELD_MOTION_SENSOR_ENTITY = "motion_sensor_entity"
@@ -24,12 +29,13 @@ FIELD_NO_MOTION_WAIT = "no_motion_wait"
 FIELD_NO_MOTION_PROFILE = "no_motion_profile"
 FIELD_DEFAULT_PROFILE = "default_profile"
 FIELD_LIGHT_PROFILE_RULE_SETS = "light_profile_rule_sets"
-FIELD_GROUP = "group"
+FIELD_USER_OR_GROUP = "user_or_group"
 FIELD_RULE_TEMPLATE = "rule_template"
 
 FIELD_LIGHTS = "lights"
 FIELD_MOTION_SENSORS = "motion_sensors"
 FIELD_LIGHT_TEMPLATE = "light_template"
+
 
 FIELD_ICON_GLOBAL_KILLSWITCH = "icon_global_killswitch"
 FIELD_ICON_KILLSWITCH = "icon_killswitch"
@@ -40,7 +46,10 @@ FIELD_MATCH_TYPE = "match_type"
 
 
 MATCH_TYPE_EXACT = "exact"
-MATCH_TYPES = [MATCH_TYPE_EXACT, "any", "all"]
+MATCH_TYPE_ANY = "any"
+MATCH_TYPE_ALL = "all"
+MATCH_TYPES = [MATCH_TYPE_EXACT, MATCH_TYPE_ANY, MATCH_TYPE_ALL]
+
 
 MOTION_KILLSWITCH_GLOBAL = "global"
 DEFAULT_GLOBAL_KILLSWITCH_ICON = "mdi:cancel"
@@ -90,11 +99,11 @@ def validate_common_light_fields(
                     f"Light template '{name}' references non-existant rule_template "
                     f"'{rule_template}'"
                 )
-            group_name = rule_set[FIELD_GROUP]
-            if group_name not in users_and_groups:
+            user_or_group = rule_set[FIELD_USER_OR_GROUP]
+            if user_or_group not in users_and_groups:
                 raise vol.Invalid(
                     f"Light template '{name}' references non-existant user/group "
-                    f"'{group_name}'"
+                    f"'{user_or_group}'"
                 )
 
 
@@ -206,9 +215,21 @@ def materialize_binding(whole_config):
         light_rules = []
         # We can use out_config here because we have resolved the template values above
         for rule in out_config[FIELD_LIGHT_PROFILE_RULE_SETS]:
+            person_or_group = rule[FIELD_USER_OR_GROUP]
+            if person_or_group in whole_config.get(FIELD_USERS, {}):
+                user_group_entity = person_presence_entity(person_or_group)
+            elif person_or_group in whole_config.get(FIELD_GROUPS, {}):
+                user_group_entity = group_presence_entity(person_or_group)
+            else:
+                raise cv.Invalid(
+                    f"Light binding '{binding_name}' referrs to non-existant "
+                    f"user/group '{person_or_group}'"
+                )
+
             light_rules.append(
                 {
-                    FIELD_GROUP: rule[FIELD_GROUP],
+                    FIELD_USER_OR_GROUP: person_or_group,
+                    FIELD_USER_OR_GROUP_ENTITY: user_group_entity,
                     FIELD_RULE_TEMPLATE: rule[FIELD_RULE_TEMPLATE],
                     FIELD_RULES: all_rules[rule[FIELD_RULE_TEMPLATE]],
                 }
@@ -249,7 +270,7 @@ COMMON_LIGHT_FIELDS = {
     vol.Optional(FIELD_LIGHT_PROFILE_RULE_SETS): vol.Schema(
         [
             {
-                FIELD_GROUP: cv.string,
+                FIELD_USER_OR_GROUP: cv.string,
                 FIELD_RULE_TEMPLATE: cv.string,
             }
         ]

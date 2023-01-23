@@ -6,23 +6,41 @@ from .schema_users_groups import (
     HOME_AWAY_STATE_AUTO,
     HOME_AWAY_STATE_NOT_HOME,
     HOME_AWAY_STATE_UNKNOWN,
-    FIELD_HOME_AWAY_ICONS,
-    FIELD_STATE_IF_UNKNOWN,
-    FIELD_STATE_ICONS,
-    FIELD_USER_GROUP_SETTINGS,
-    FIELD_GUEST,
     FIELD_GROUPS,
-    FIELD_USERS,
+    FIELD_GUEST,
+    FIELD_HOME_AWAY_ICONS,
+    FIELD_STATE_ICONS,
+    FIELD_STATE_IF_UNKNOWN,
     FIELD_TRACKING_ENTITY,
+    FIELD_USER_GROUP_SETTINGS,
+    FIELD_USERS,
+)
+from .schema_motion_profiles import (
+    FIELD_DEFAULT_PROFILE,
+    FIELD_LIGHT_PROFILE_RULE_SETS,
+    FIELD_MATCH_TYPE,
+    FIELD_MATERIALIZED_BINDINGS,
+    FIELD_MOTION_SENSOR_ENTITY,
+    FIELD_PROFILE,
+    FIELD_RULES,
+    FIELD_STATES,
+    FIELD_USER_OR_GROUP_ENTITY,
+    MATCH_TYPE_ALL,
+    MATCH_TYPE_ANY,
+    MATCH_TYPE_EXACT,
+    MOTION_KILLSWITCH_GLOBAL,
 )
 from .entity_names import (
     group_presence_entity,
+    light_binding_profile_entity,
+    killswitch_entity,
     person_exists_entity,
     person_home_away_entity,
     person_override_home_away_entity,
     person_state_entity,
     person_presence_entity,
 )
+from homeassistant.const import STATE_ON
 from homeassistant.helpers.event import (
     async_track_state_change_event,
 )
@@ -73,6 +91,18 @@ async def async_setup_platform(
             )
         )
     async_add_entities(group_sensors)
+
+    light_profile_sensors = []
+    materialized_bindings = discovery_info[FIELD_MATERIALIZED_BINDINGS]
+    for binding_name, materialized_binding in materialized_bindings.items():
+        light_profile_sensors.append(
+            LightProfileEntity(
+                binding_name,
+                materialized_binding,
+            )
+        )
+
+    async_add_entities(light_profile_sensors)
 
 
 class CalculatedSensor:
@@ -226,3 +256,54 @@ class GroupPresenceSensor(CalculatedSensor, SensorEntity):
             states.discard(PERSON_STATE_ABSENT)
 
         return self.serialize(states)
+
+
+class LightProfileEntity(CalculatedSensor, SensorEntity):
+    def __init__(
+        self,
+        binding_name,
+        materialized_binding,
+    ):
+        super().__init__()
+        self._attr_name = light_binding_profile_entity(
+            binding_name, without_domain=True
+        )
+
+        self._rule_sets = materialized_binding[FIELD_LIGHT_PROFILE_RULE_SETS]
+        self._dependent_entities = []
+        for rule in self._rule_sets:
+            self._dependent_entities.append(rule[FIELD_USER_OR_GROUP_ENTITY])
+
+        self._default_profile = materialized_binding[FIELD_DEFAULT_PROFILE]
+
+    def calculate_current_state(self):
+        # For this entity we don't care if motion has occured or not. We are just
+        # resolving the rules down to which profile would be currently used and
+        # another bit of automation controls if that profile or the no_motion_profile
+        # should be active
+        #
+        # Because we don't care about motion here we also don't look at the killswitches
+        # which only effect if motion is/isn't honored
+
+        for ruleset in self._rule_sets:
+            user_or_group_state = self.hass.states.get(
+                ruleset[FIELD_USER_OR_GROUP_ENTITY]
+            )
+            if user_or_group_state is None:
+                continue
+            states = GroupPresenceSensor.deserialize(user_or_group_state.state)
+
+            for rule in ruleset[FIELD_RULES]:
+                match_type = rule[FIELD_MATCH_TYPE]
+                rule_states = set(rule[FIELD_STATES])
+
+                if match_type == MATCH_TYPE_EXACT and states == rule_states:
+                    return rule[FIELD_PROFILE]
+                elif match_type == MATCH_TYPE_ANY:
+                    if any(rule_state in states for rule_state in rule_states):
+                        return rule[FIELD_PROFILE]
+                elif match_type == MATCH_TYPE_ALL:
+                    if all(rule_state in states for rule_state in rule_states):
+                        return rule[FIELD_PROFILE]
+
+        return self._default_profile

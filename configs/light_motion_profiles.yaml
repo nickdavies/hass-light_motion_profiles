@@ -123,21 +123,21 @@ light_templates:
     default_profile: disable
     no_motion_profile: disable
     light_profile_rule_sets:
-        - group: everyone
+        - user_or_group: everyone
           rule_template: prefer_awake
   communal:
     no_motion_wait: 180
     default_profile: disable
     no_motion_profile: disable
     light_profile_rule_sets:
-        - group: everyone
+        - user_or_group: everyone
           rule_template: prefer_awake
   sensitive:
     no_motion_wait: 180
     default_profile: disable
     no_motion_profile: disable
     light_profile_rule_sets:
-        - group: everyone
+        - user_or_group: everyone
           rule_template: prefer_asleep
 
 
