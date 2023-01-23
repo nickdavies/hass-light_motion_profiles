@@ -1,4 +1,6 @@
 import logging
+import asyncio
+from datetime import timedelta
 
 from . import GROUP_SEPARATOR
 from .schema_users_groups import (
@@ -16,11 +18,17 @@ from .schema_users_groups import (
     FIELD_USERS,
 )
 from .schema_motion_profiles import (
+    FIELD_BRIGHTNESS_PCT,
     FIELD_DEFAULT_PROFILE,
+    FIELD_ENABLED,
     FIELD_LIGHT_PROFILE_RULE_SETS,
+    FIELD_LIGHT_PROFILES,
+    FIELD_LIGHTS,
     FIELD_MATCH_TYPE,
     FIELD_MATERIALIZED_BINDINGS,
     FIELD_MOTION_SENSOR_ENTITY,
+    FIELD_NO_MOTION_PROFILE,
+    FIELD_NO_MOTION_WAIT,
     FIELD_PROFILE,
     FIELD_RULES,
     FIELD_STATES,
@@ -32,16 +40,30 @@ from .schema_motion_profiles import (
 )
 from .entity_names import (
     group_presence_entity,
-    light_binding_profile_entity,
     killswitch_entity,
+    light_automation_entity,
+    light_binding_profile_entity,
     person_exists_entity,
     person_home_away_entity,
     person_override_home_away_entity,
-    person_state_entity,
     person_presence_entity,
+    person_state_entity,
 )
-from homeassistant.const import STATE_ON
+
+from homeassistant.components.light import (
+    ATTR_BRIGHTNESS_PCT,
+    DOMAIN as LIGHT_DOMAIN,
+)
+from homeassistant.util import dt as dt_util
+from homeassistant.const import (
+    STATE_ON,
+    STATE_OFF,
+    SERVICE_TURN_ON,
+    SERVICE_TURN_OFF,
+    ATTR_ENTITY_ID,
+)
 from homeassistant.helpers.event import (
+    async_track_point_in_utc_time,
     async_track_state_change_event,
 )
 from homeassistant.core import HomeAssistant, callback
@@ -92,17 +114,22 @@ async def async_setup_platform(
         )
     async_add_entities(group_sensors)
 
-    light_profile_sensors = []
+    light_sensors = []
     materialized_bindings = discovery_info[FIELD_MATERIALIZED_BINDINGS]
     for binding_name, materialized_binding in materialized_bindings.items():
-        light_profile_sensors.append(
+        light_sensors.append(
             LightProfileEntity(
                 binding_name,
                 materialized_binding,
             )
         )
+        light_sensors.append(
+            LightAutomationEntity(
+                binding_name, materialized_binding, discovery_info[FIELD_LIGHT_PROFILES]
+            )
+        )
 
-    async_add_entities(light_profile_sensors)
+    async_add_entities(light_sensors)
 
 
 class CalculatedSensor:
@@ -316,3 +343,137 @@ class LightProfileEntity(CalculatedSensor, SensorEntity):
                         return rule[FIELD_PROFILE]
 
         return self._default_profile
+
+
+class LightAutomationEntity(CalculatedSensor, SensorEntity):
+    def __init__(
+        self,
+        binding_name,
+        materialized_binding,
+        light_profiles,
+    ):
+        super().__init__()
+        self._attr_name = light_automation_entity(binding_name, without_domain=True)
+
+        self._rule_sets = materialized_binding[FIELD_LIGHT_PROFILE_RULE_SETS]
+
+        self._no_motion_profile = materialized_binding[FIELD_NO_MOTION_PROFILE]
+        self._no_motion_timeout = timedelta(
+            seconds=materialized_binding[FIELD_NO_MOTION_WAIT]
+        )
+        self._no_motion_cb_cancel = None
+
+        self._global_killswitch_entity = killswitch_entity(MOTION_KILLSWITCH_GLOBAL)
+        self._killswitch_entity = killswitch_entity(binding_name)
+        self._light_profile_entity = light_binding_profile_entity(binding_name)
+        self._motion_entity = materialized_binding[FIELD_MOTION_SENSOR_ENTITY]
+
+        self._dependent_entities = [
+            self._global_killswitch_entity,
+            self._killswitch_entity,
+            self._light_profile_entity,
+            self._motion_entity,
+        ]
+
+        self._light_entity = materialized_binding[FIELD_LIGHTS]
+        self._light_profiles = light_profiles
+
+    async def async_added_to_hass(self):
+        def on_remove():
+            if self._no_motion_cb_cancel is not None:
+                self._no_motion_cb_cancel()
+                self._no_motion_cb_cancel = None
+
+        self.async_on_remove(on_remove)
+        return await super().async_added_to_hass()
+
+    def _no_motion_callback(self, *args, **kwargs):
+        self._apply_and_save_state(self._no_motion_profile)
+
+    def _apply_state(self, new_state):
+        change_light = True
+
+        global_killswitch = self.hass.states.get(self._global_killswitch_entity)
+        if global_killswitch is not None and global_killswitch.state == STATE_ON:
+            _LOGGER.info(
+                "refusing to update {self._attr_name} because of global killswitch"
+            )
+            change_light = False
+            new_state = f"{new_state}(killswitch)"
+
+        killswitch = self.hass.states.get(self._killswitch_entity)
+        if killswitch is not None and killswitch.state == STATE_ON:
+            _LOGGER.info(
+                "refusing to update {self._attr_name} because of local killswitch"
+            )
+            change_light = False
+            new_state = f"{new_state}(global_killswitch)"
+
+        # This sets the user facing attribute but doesn't change the light
+        super()._apply_state(new_state)
+
+        # Now we update the light if the profile != current light state
+        light_state = self.hass.states.get(self._light_entity)
+        if light_state is None:
+            _LOGGER.warning(
+                f"Requested to update light {self._light_entity} for automation "
+                f"{self._attr_name} but that light appears to not exists"
+            )
+        elif change_light:
+            light_profile = self._light_profiles[new_state]
+
+            service_data = {
+                ATTR_ENTITY_ID: self._light_entity,
+            }
+            service = SERVICE_TURN_OFF
+            if light_profile[FIELD_ENABLED]:
+                service = SERVICE_TURN_ON
+                light_profile_brightness = light_profile.get(FIELD_BRIGHTNESS_PCT, None)
+                if light_profile_brightness is not None:
+                    service_data[ATTR_BRIGHTNESS_PCT] = light_profile_brightness
+
+            asyncio.run_coroutine_threadsafe(
+                self.hass.services.async_call(
+                    LIGHT_DOMAIN,
+                    service,
+                    service_data,
+                    blocking=False,
+                ),
+                self.hass.loop,
+            )
+
+        return True
+
+    def calculate_current_state(self):
+        profile_state = self.hass.states.get(self._light_profile_entity)
+        if profile_state:
+            return profile_state.state
+        return None
+
+    def _force_update(self, event):
+        # We should always check the callback and cancel it if we see motion even
+        # with the killswitches possibly enabled. This prevents us from having the
+        # callback run if the killswitch is enabled after motion is not detected
+        motion_state = self.hass.states.get(self._motion_entity)
+        if motion_state is not None and self._no_motion_cb_cancel is not None:
+            if motion_state.state == STATE_ON:
+                self._no_motion_cb_cancel()
+                self._no_motion_cb_cancel = None
+
+        # If we detect no motion and there isn't a currently pending callback we schedule
+        # the callback
+        #
+        # We don't actually care which entity has changed, if we notice for any reason
+        # that there is no motion and we don't have the callback in place we schedule it
+        if motion_state is not None:
+            if motion_state.state == STATE_OFF and self._no_motion_cb_cancel is None:
+                self._no_motion_cb_cancel = async_track_point_in_utc_time(
+                    self.hass,
+                    self._no_motion_callback,
+                    dt_util.utcnow() + self._no_motion_timeout,
+                )
+
+        # At this point we may have been updated by either a motion update or any other
+        # of our dependent entities. However we don't actually care why we are here we
+        # should check to see if we should update the light regardless
+        super()._force_update(event)

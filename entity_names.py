@@ -7,6 +7,7 @@ EXISTS_ENTITY_DOMAIN = "switch"
 KILLSWITCH_ENTITY_DOMAIN = "switch"
 MOTION_SENSOR_GROUP_DOMIAN = "binary_sensor"
 LIGHT_BINDING_DOMIAN = "sensor"
+LIGHT_AUTOMATION_DOMIAN = "sensor"
 
 
 def _build(suffix, domain, without_domain):
@@ -69,3 +70,9 @@ def motion_sensor_group_entity(name, without_domain=False):
 
 def light_binding_profile_entity(name, without_domain=False):
     return _build(f"light_binding_output_{name}", LIGHT_BINDING_DOMIAN, without_domain)
+
+
+def light_automation_entity(name, without_domain=False):
+    return _build(
+        f"light_binding_automation_{name}", LIGHT_AUTOMATION_DOMIAN, without_domain
+    )
