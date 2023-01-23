@@ -113,18 +113,27 @@ class CalculatedSensor:
         setattr(self, self.PRIMARY_ATTR, None)
         self._icons = None
 
-    def _force_update(self):
+    def _apply_state(self, new_state):
+        setattr(self, self.PRIMARY_ATTR, new_state)
+        return True
+
+    def _apply_and_save_state(self, new_state):
+        changed = self._apply_state(new_state)
+        if changed:
+            if self._icons is not None:
+                self._attr_icon = self._icons.get(new_state)
+            self.async_write_ha_state()
+        return changed
+
+    def _force_update(self, event):
         new_state = self.calculate_current_state()
         _LOGGER.info(f"new_state for {self._attr_name}={new_state}")
-        setattr(self, self.PRIMARY_ATTR, new_state)
-        if self._icons is not None:
-            self._attr_icon = self._icons.get(new_state)
-        self.async_write_ha_state()
+        return self._apply_and_save_state(new_state)
 
     async def async_added_to_hass(self):
         @callback
         def dependent_entity_change(event):
-            self._force_update()
+            self._force_update(event)
 
         _LOGGER.debug(
             f"subscribing {self._attr_name} up for {self._dependent_entities} updates"
@@ -134,7 +143,7 @@ class CalculatedSensor:
                 self.hass, self._dependent_entities, dependent_entity_change
             )
         )
-        self._force_update()
+        self._force_update(None)
 
 
 class UserHomeAwaySensor(CalculatedSensor, SensorEntity):
