@@ -144,11 +144,13 @@ class CalculatedSensor:
         setattr(self, self.PRIMARY_ATTR, new_state)
         return True
 
+    def _apply_icon(self, new_state):
+        if self._icons is not None:
+            self._attr_icon = self._icons.get(new_state)
+
     def _apply_and_save_state(self, new_state):
         changed = self._apply_state(new_state)
         if changed:
-            if self._icons is not None:
-                self._attr_icon = self._icons.get(new_state)
             self.async_write_ha_state()
         return changed
 
@@ -388,9 +390,15 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
         return await super().async_added_to_hass()
 
     def _no_motion_callback(self, *args, **kwargs):
-        self._apply_and_save_state(self._no_motion_profile)
+        self._apply_and_save_state((self._no_motion_profile, True))
 
-    def _apply_state(self, new_state):
+    def _apply_icon(self, new_state):
+        # state is a tuple of the actual state and a flag for if we should allow
+        # no-motion
+        super()._apply_icon(new_state[0])
+
+    def _apply_state(self, new_state_tuple):
+        new_state, allow_no_motion = new_state_tuple
         change_light = True
 
         global_killswitch = self.hass.states.get(self._global_killswitch_entity)
@@ -408,6 +416,12 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
             )
             change_light = False
             new_state = f"{new_state}(global_killswitch)"
+
+        motion_state = self.hass.states.get(self._motion_entity)
+        if not allow_no_motion:
+            if motion_state is not None and motion_state.state == STATE_OFF:
+                change_light = False
+                new_state = f"{new_state}(no_motion)"
 
         # This sets the user facing attribute but doesn't change the light
         super()._apply_state(new_state)
@@ -447,7 +461,7 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
     def calculate_current_state(self):
         profile_state = self.hass.states.get(self._light_profile_entity)
         if profile_state:
-            return profile_state.state
+            return (profile_state.state, False)
         return None
 
     def _force_update(self, event):
