@@ -21,6 +21,7 @@ from .schema_motion_profiles import (
     FIELD_BRIGHTNESS_PCT,
     FIELD_DEFAULT_PROFILE,
     FIELD_ENABLED,
+    FIELD_LIGHT_ICON,
     FIELD_LIGHT_PROFILE_RULE_SETS,
     FIELD_LIGHT_PROFILES,
     FIELD_LIGHTS,
@@ -114,6 +115,11 @@ async def async_setup_platform(
         )
     async_add_entities(group_sensors)
 
+    profile_icons = {}
+    for name, profile in discovery_info[FIELD_LIGHT_PROFILES].items():
+        if FIELD_LIGHT_ICON in profile:
+            profile_icons[name] = profile[FIELD_LIGHT_ICON]
+
     light_sensors = []
     materialized_bindings = discovery_info[FIELD_MATERIALIZED_BINDINGS]
     for binding_name, materialized_binding in materialized_bindings.items():
@@ -121,11 +127,15 @@ async def async_setup_platform(
             LightProfileEntity(
                 binding_name,
                 materialized_binding,
+                profile_icons,
             )
         )
         light_sensors.append(
             LightAutomationEntity(
-                binding_name, materialized_binding, discovery_info[FIELD_LIGHT_PROFILES]
+                binding_name,
+                materialized_binding,
+                discovery_info[FIELD_LIGHT_PROFILES],
+                profile_icons,
             )
         )
 
@@ -151,6 +161,7 @@ class CalculatedSensor:
     def _apply_and_save_state(self, new_state):
         changed = self._apply_state(new_state)
         if changed:
+            self._apply_icon(new_state)
             self.async_write_ha_state()
         return changed
 
@@ -301,11 +312,14 @@ class LightProfileEntity(CalculatedSensor, SensorEntity):
         self,
         binding_name,
         materialized_binding,
+        profile_icons,
     ):
         super().__init__()
         self._attr_name = light_binding_profile_entity(
             binding_name, without_domain=True
         )
+
+        self._icons = profile_icons
 
         self._rule_sets = materialized_binding[FIELD_LIGHT_PROFILE_RULE_SETS]
         self._dependent_entities = []
@@ -353,11 +367,13 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
         binding_name,
         materialized_binding,
         light_profiles,
+        profile_icons,
     ):
         super().__init__()
         self._attr_name = light_automation_entity(binding_name, without_domain=True)
 
         self._rule_sets = materialized_binding[FIELD_LIGHT_PROFILE_RULE_SETS]
+        self._icons = profile_icons
 
         self._no_motion_profile = materialized_binding[FIELD_NO_MOTION_PROFILE]
         self._no_motion_timeout = timedelta(

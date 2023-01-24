@@ -25,6 +25,7 @@ FIELD_MOTION_SENSOR_ENTITY = "motion_sensor_entity"
 
 FIELD_ENABLED = "enabled"
 FIELD_BRIGHTNESS_PCT = "brightness_pct"
+FIELD_LIGHT_ICON = "icon"
 FIELD_NO_MOTION_WAIT = "no_motion_wait"
 FIELD_NO_MOTION_PROFILE = "no_motion_profile"
 FIELD_DEFAULT_PROFILE = "default_profile"
@@ -307,6 +308,7 @@ LIGHT_PROFILE_SCHEMA = vol.Schema(
     {
         FIELD_ENABLED: cv.boolean,
         vol.Optional(FIELD_BRIGHTNESS_PCT): cv.positive_int,
+        vol.Optional(FIELD_LIGHT_ICON): cv.string,
     }
 )
 

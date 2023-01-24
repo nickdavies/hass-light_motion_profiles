@@ -63,20 +63,26 @@ groups:
 light_profiles:
   enable:
     enabled: true
+    icon: mdi:lightbulb-on
   disable:
     enabled: false
+    icon: mdi:lightbulb-off
   full:
     enabled: true
     brightness_pct: 100
+    icon: mdi:weather-sunny
   half:
     enabled: true
     brightness_pct: 50
+    icon: mdi:lightbulb-on-50
   dim:
     enabled: true
     brightness_pct: 25
+    icon: mdi:lamp
   night_light:
     enabled: true
     brightness_pct: 5
+    icon: mdi:weather-night
 
 
 light_rule_templates:
