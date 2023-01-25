@@ -45,8 +45,6 @@ def preprocess_config(config):
 
 
 async def async_setup(hass, whole_config):
-    hass.states.async_set("light_motion_profiles.hello_world", "Hello!")
-
     config = preprocess_config(whole_config[DOMAIN])
 
     await discovery.async_load_platform(
