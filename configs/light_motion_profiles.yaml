@@ -1,3 +1,5 @@
+debug_dashboard:
+
 user_group_settings:
   valid_person_states:
     - awake

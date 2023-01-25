@@ -14,6 +14,7 @@ FIELD_LIGHT_RULE_TEMPLATES = "light_rule_templates"
 FIELD_LIGHT_TEMPLATES = "light_templates"
 FIELD_LIGHT_BINDINGS = "light_bindings"
 FIELD_LIGHT_PROFILE_SETTINGS = "light_profile_settings"
+FIELD_DASHBOARD_SETTINGS = "debug_dashboard"
 
 # Automatically generated top level field. Not valid in config
 FIELD_MATERIALIZED_BINDINGS = "materialized_bindings"
@@ -44,6 +45,9 @@ FIELD_ICON_KILLSWITCH = "icon_killswitch"
 FIELD_PROFILE = "profile"
 FIELD_STATES = "states"
 FIELD_MATCH_TYPE = "match_type"
+
+
+FIELD_DASHBOARD_TITLE = "title"
 
 
 MATCH_TYPE_EXACT = "exact"
@@ -261,6 +265,12 @@ def preprocess_motion_profiles_config(config):
     settings.setdefault(FIELD_ICON_GLOBAL_KILLSWITCH, DEFAULT_GLOBAL_KILLSWITCH_ICON)
     settings.setdefault(FIELD_ICON_KILLSWITCH, DEFAULT_KILLSWITCH_ICON)
 
+    if FIELD_DASHBOARD_SETTINGS in config:
+        dashboard_settings = config[FIELD_DASHBOARD_SETTINGS] = (
+            config.get(FIELD_DASHBOARD_SETTINGS) or {}
+        )
+        dashboard_settings.setdefault(FIELD_DASHBOARD_TITLE, None)
+
     return config
 
 
@@ -322,12 +332,22 @@ SETTINGS_SCHEMA = vol.Schema(
     )
 )
 
+DASHBOARD_SCHEMA = vol.Schema(
+    vol.Any(
+        None,
+        {
+            vol.Optional(FIELD_DASHBOARD_TITLE): cv.string,
+        },
+    )
+)
+
 MOTION_PROFILES_SCHEMA = {
     vol.Optional(FIELD_LIGHT_PROFILES): {cv.string: LIGHT_PROFILE_SCHEMA},
     vol.Optional(FIELD_LIGHT_RULE_TEMPLATES): {cv.string: LIGHT_RULE_TEMPLATE_SCHEMA},
     vol.Optional(FIELD_LIGHT_TEMPLATES): {cv.string: LIGHT_TEMPLATE_SCHEMA},
     vol.Optional(FIELD_LIGHT_BINDINGS): {cv.string: LIGHT_BINDINGS},
     vol.Optional(FIELD_LIGHT_PROFILE_SETTINGS): SETTINGS_SCHEMA,
+    vol.Optional(FIELD_DASHBOARD_SETTINGS): DASHBOARD_SCHEMA,
 }
 
 MOTION_PROFILES_VALIDATIONS = [

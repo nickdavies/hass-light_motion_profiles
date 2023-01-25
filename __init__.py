@@ -6,12 +6,14 @@ from homeassistant.const import (
     Platform,
 )
 
+from .lovelace import setup_dashboard
 from .schema_users_groups import (
     USERS_GROUPS_SCHEMA,
     USERS_GROUPS_VALIDATIONS,
     preprocess_users_groups_config,
 )
 from .schema_motion_profiles import (
+    FIELD_DASHBOARD_SETTINGS,
     MOTION_PROFILES_SCHEMA,
     MOTION_PROFILES_VALIDATIONS,
     preprocess_motion_profiles_config,
@@ -78,6 +80,9 @@ async def async_setup(hass, whole_config):
         config,
         whole_config,
     )
+
+    if FIELD_DASHBOARD_SETTINGS in config:
+        setup_dashboard(hass, config)
 
     # Return boolean to indicate that initialization was successful.
     return True
