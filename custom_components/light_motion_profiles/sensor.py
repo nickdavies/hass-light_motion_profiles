@@ -406,7 +406,7 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
         return await super().async_added_to_hass()
 
     def _no_motion_callback(self, *args, **kwargs):
-        self._apply_and_save_state((self._no_motion_profile, True))
+        self._apply_and_save_state((self._no_motion_profile, False))
 
     def _apply_icon(self, new_state):
         # state is a tuple of the actual state and a flag for if we should allow
@@ -414,7 +414,7 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
         super()._apply_icon(new_state[0])
 
     def _apply_state(self, new_state_tuple):
-        new_state, allow_no_motion = new_state_tuple
+        new_state, no_motion_event = new_state_tuple
         change_light = True
 
         global_killswitch = self.hass.states.get(self._global_killswitch_entity)
@@ -433,11 +433,9 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
             change_light = False
             new_state = f"{new_state}(global_killswitch)"
 
-        motion_state = self.hass.states.get(self._motion_entity)
-        if not allow_no_motion:
-            if motion_state is not None and motion_state.state == STATE_OFF:
-                change_light = False
-                new_state = f"{new_state}(no_motion)"
+        if no_motion_event:
+            change_light = False
+            new_state = f"{new_state}(no_motion)"
 
         # This sets the user facing attribute but doesn't change the light
         super()._apply_state(new_state)
@@ -474,12 +472,6 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
 
         return True
 
-    def calculate_current_state(self):
-        profile_state = self.hass.states.get(self._light_profile_entity)
-        if profile_state:
-            return (profile_state.state, False)
-        return None
-
     def _force_update(self, event):
         # We should always check the callback and cancel it if we see motion even
         # with the killswitches possibly enabled. This prevents us from having the
@@ -506,4 +498,28 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
         # At this point we may have been updated by either a motion update or any other
         # of our dependent entities. However we don't actually care why we are here we
         # should check to see if we should update the light regardless
-        super()._force_update(event)
+
+        profile_state = self.hass.states.get(self._light_profile_entity)
+        new_state = None
+        if profile_state:
+            new_state = profile_state.state
+
+        if event is not None:
+            event_entity = event.data.get("entity_id")
+            event_new_state = event.data.get("new_state")
+            if event_new_state:
+                event_new_state = event_new_state.state
+            no_motion_event = (
+                event_entity == self._motion_entity and event_new_state == STATE_OFF
+            )
+        else:
+            event_entity = None
+            event_new_state = None
+            no_motion_event = False
+
+        _LOGGER.info(
+            f"new_state for {self._attr_name}={new_state} "
+            f"no_motion_event={no_motion_event} "
+            f"(entity={event_entity}, new_state={event_new_state})"
+        )
+        return self._apply_and_save_state((new_state, no_motion_event))
