@@ -49,6 +49,7 @@ from .entity_names import (
     person_override_home_away_entity,
     person_presence_entity,
     person_state_entity,
+    light_movement_entity,
 )
 
 from homeassistant.components.light import (
@@ -128,6 +129,12 @@ async def async_setup_platform(
                 binding_name,
                 materialized_binding,
                 profile_icons,
+            )
+        )
+        light_sensors.append(
+            LightMovementEntity(
+                binding_name,
+                materialized_binding,
             )
         )
         light_sensors.append(
@@ -361,6 +368,74 @@ class LightProfileEntity(CalculatedSensor, SensorEntity):
         return self._default_profile
 
 
+class LightMovementEntity(CalculatedSensor, SensorEntity):
+
+    STATE_PRESENT = "present"
+    STATE_COOLDOWN = "cooldown"
+    STATE_NO_MOTION = "no_motion"
+
+    def __init__(self, binding_name, materialized_binding):
+        super().__init__()
+
+        self._attr_name = light_movement_entity(binding_name, without_domain=True)
+
+        self._no_motion_cb_cancel = None
+
+        self._motion_entity = materialized_binding[FIELD_MOTION_SENSOR_ENTITY]
+        self._no_motion_timeout = timedelta(
+            seconds=materialized_binding[FIELD_NO_MOTION_WAIT]
+        )
+
+        self._dependent_entities = [
+            self._motion_entity,
+        ]
+
+    async def async_added_to_hass(self):
+        def on_remove():
+            if self._no_motion_cb_cancel is not None:
+                self._no_motion_cb_cancel()
+                self._no_motion_cb_cancel = None
+
+        self.async_on_remove(on_remove)
+        return await super().async_added_to_hass()
+
+    def _no_motion_callback(self, *args, **kwargs):
+        _LOGGER.warning(f"No motion callback {self._attr_name}")
+        self._apply_and_save_state(self.STATE_NO_MOTION)
+
+    def _force_update(self, event):
+        motion_state = self.hass.states.get(self._motion_entity)
+        if motion_state is None:
+            return
+        motion_state = motion_state.state
+
+        new_state = None
+        if motion_state == STATE_ON:
+            # If we detect motion we cancel the callback if it exists
+            if self._no_motion_cb_cancel is not None:
+                self._no_motion_cb_cancel()
+                self._no_motion_cb_cancel = None
+            new_state = self.STATE_PRESENT
+        elif motion_state == STATE_OFF:
+            # If we we don't see motion but already have a callback we do nothing
+            if self._no_motion_cb_cancel:
+                return
+
+            # Otherwise we schedule the callback
+            self._no_motion_cb_cancel = async_track_point_in_utc_time(
+                self.hass,
+                self._no_motion_callback,
+                dt_util.utcnow() + self._no_motion_timeout,
+            )
+            new_state = self.STATE_COOLDOWN
+        else:
+            _LOGGER.warning(f"Unknown state for motion entity {motion_state}")
+            return
+
+        _LOGGER.info(f"new_state for {self._attr_name}={new_state}")
+        return self._apply_and_save_state(new_state)
+
+
 class LightAutomationEntity(CalculatedSensor, SensorEntity):
     def __init__(
         self,
@@ -376,54 +451,65 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
         self._icons = profile_icons
 
         self._no_motion_profile = materialized_binding[FIELD_NO_MOTION_PROFILE]
-        self._no_motion_timeout = timedelta(
-            seconds=materialized_binding[FIELD_NO_MOTION_WAIT]
-        )
-        self._no_motion_cb_cancel = None
 
         self._global_killswitch_entity = killswitch_entity(MOTION_KILLSWITCH_GLOBAL)
         self._killswitch_entity = killswitch_entity(binding_name)
         self._light_profile_entity = light_binding_profile_entity(binding_name)
-        self._motion_entity = materialized_binding[FIELD_MOTION_SENSOR_ENTITY]
+        self._movement_entity = light_movement_entity(binding_name)
 
         self._dependent_entities = [
-            self._global_killswitch_entity,
-            self._killswitch_entity,
             self._light_profile_entity,
-            self._motion_entity,
+            self._movement_entity,
         ]
 
         self._light_entity = materialized_binding[FIELD_LIGHTS]
         self._light_profiles = light_profiles
 
-    async def async_added_to_hass(self):
-        def on_remove():
-            if self._no_motion_cb_cancel is not None:
-                self._no_motion_cb_cancel()
-                self._no_motion_cb_cancel = None
+    def calculate_current_state(self):
+        motion_state = self.hass.states.get(self._movement_entity)
 
-        self.async_on_remove(on_remove)
-        return await super().async_added_to_hass()
+        profile = None
+        if motion_state is None:
+            profile = None
+        else:
+            motion_state = motion_state.state
+            if motion_state == LightMovementEntity.STATE_NO_MOTION:
+                profile = self._no_motion_profile
+            if motion_state in [
+                LightMovementEntity.STATE_PRESENT,
+                LightMovementEntity.STATE_COOLDOWN,
+            ]:
+                light_profile_state = self.hass.states.get(self._light_profile_entity)
+                if light_profile_state is None:
+                    profile = None
+                else:
+                    profile = light_profile_state.state
 
-    def _no_motion_callback(self, *args, **kwargs):
-        self._apply_and_save_state((self._no_motion_profile, False))
+        return {
+            "light_profile": profile,
+            "motion_state": motion_state,
+        }
 
     def _apply_icon(self, new_state):
-        # state is a tuple of the actual state and a flag for if we should allow
-        # no-motion
-        super()._apply_icon(new_state[0])
+        # we only care about what profile is being selected
+        return super()._apply_icon(new_state["light_profile"])
 
-    def _apply_state(self, new_state_tuple):
-        new_state, no_motion_event = new_state_tuple
+    def _apply_state(self, new_state):
+        light_profile_name = new_state["light_profile"]
+        motion_state = new_state["motion_state"]
         change_light = True
 
+        if light_profile_name is None:
+            return False
+
+        display_name = light_profile_name
         global_killswitch = self.hass.states.get(self._global_killswitch_entity)
         if global_killswitch is not None and global_killswitch.state == STATE_ON:
             _LOGGER.info(
                 "refusing to update {self._attr_name} because of global killswitch"
             )
             change_light = False
-            new_state = f"{new_state}(killswitch)"
+            display_name = f"{light_profile_name}(killswitch)"
 
         killswitch = self.hass.states.get(self._killswitch_entity)
         if killswitch is not None and killswitch.state == STATE_ON:
@@ -431,16 +517,14 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
                 "refusing to update {self._attr_name} because of local killswitch"
             )
             change_light = False
-            new_state = f"{new_state}(global_killswitch)"
+            display_name = f"{light_profile_name}(global_killswitch)"
 
-        if no_motion_event:
-            change_light = False
-            new_state = f"{new_state}(no_motion)"
+        if motion_state == LightMovementEntity.STATE_COOLDOWN:
+            display_name = f"{light_profile_name}(no_motion)"
 
         # This sets the user facing attribute but doesn't change the light
-        super()._apply_state(new_state)
+        super()._apply_state(display_name)
 
-        # Now we update the light if the profile != current light state
         light_state = self.hass.states.get(self._light_entity)
         if light_state is None:
             _LOGGER.warning(
@@ -448,7 +532,7 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
                 f"{self._attr_name} but that light appears to not exists"
             )
         elif change_light:
-            light_profile = self._light_profiles[new_state]
+            light_profile = self._light_profiles[light_profile_name]
 
             service_data = {
                 ATTR_ENTITY_ID: self._light_entity,
@@ -471,55 +555,3 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
             )
 
         return True
-
-    def _force_update(self, event):
-        # We should always check the callback and cancel it if we see motion even
-        # with the killswitches possibly enabled. This prevents us from having the
-        # callback run if the killswitch is enabled after motion is not detected
-        motion_state = self.hass.states.get(self._motion_entity)
-        if motion_state is not None and self._no_motion_cb_cancel is not None:
-            if motion_state.state == STATE_ON:
-                self._no_motion_cb_cancel()
-                self._no_motion_cb_cancel = None
-
-        # If we detect no motion and there isn't a currently pending callback we schedule
-        # the callback
-        #
-        # We don't actually care which entity has changed, if we notice for any reason
-        # that there is no motion and we don't have the callback in place we schedule it
-        if motion_state is not None:
-            if motion_state.state == STATE_OFF and self._no_motion_cb_cancel is None:
-                self._no_motion_cb_cancel = async_track_point_in_utc_time(
-                    self.hass,
-                    self._no_motion_callback,
-                    dt_util.utcnow() + self._no_motion_timeout,
-                )
-
-        # At this point we may have been updated by either a motion update or any other
-        # of our dependent entities. However we don't actually care why we are here we
-        # should check to see if we should update the light regardless
-
-        profile_state = self.hass.states.get(self._light_profile_entity)
-        new_state = None
-        if profile_state:
-            new_state = profile_state.state
-
-        if event is not None:
-            event_entity = event.data.get("entity_id")
-            event_new_state = event.data.get("new_state")
-            if event_new_state:
-                event_new_state = event_new_state.state
-            no_motion_event = (
-                event_entity == self._motion_entity and event_new_state == STATE_OFF
-            )
-        else:
-            event_entity = None
-            event_new_state = None
-            no_motion_event = False
-
-        _LOGGER.info(
-            f"new_state for {self._attr_name}={new_state} "
-            f"no_motion_event={no_motion_event} "
-            f"(entity={event_entity}, new_state={event_new_state})"
-        )
-        return self._apply_and_save_state((new_state, no_motion_event))

@@ -24,6 +24,7 @@ from .entity_names import (
     person_override_home_away_entity,
     person_presence_entity,
     person_state_entity,
+    light_movement_entity,
 )
 
 from homeassistant.components.lovelace.dashboard import LovelaceConfig
@@ -152,19 +153,22 @@ class ManualLovelaceYAML(LovelaceConfig):
 
     def _build_light_bindings(self):
         light_profile = []
+        light_movement = []
         light_automation = []
         for binding_name in self._motion_config[FIELD_MATERIALIZED_BINDINGS]:
             light_profile.append(light_binding_profile_entity(binding_name))
+            light_movement.append(light_movement_entity(binding_name))
             light_automation.append(light_automation_entity(binding_name))
 
-        return HorizontalStackCard(
-            cards=[
-                EntitiesCard(entities=light_profile, title="Light Profiles"),
-                EntitiesCard(
-                    entities=light_automation, title="Light Automation States"
-                ),
-            ]
-        )
+        return [
+            EntitiesCard(entities=light_automation, title="Light Automation States"),
+            HorizontalStackCard(
+                cards=[
+                    EntitiesCard(entities=light_profile, title="Light Profiles"),
+                    EntitiesCard(entities=light_movement, title="Movement states"),
+                ]
+            ),
+        ]
 
     def _build_per_user_overrides(self):
         cards = []
@@ -222,7 +226,7 @@ class ManualLovelaceYAML(LovelaceConfig):
                             self._build_user_group_presence(),
                             self._build_motion_and_killswitches(),
                             self._build_per_user_overrides(),
-                            self._build_light_bindings(),
+                            *self._build_light_bindings(),
                         ]
                     )
                 ],
