@@ -6,7 +6,10 @@ from homeassistant.const import (
     Platform,
 )
 
-from .dashboards import PresenceDebugDashboard
+from .dashboards import (
+    PresenceDebugDashboard,
+    LightAutomationDebugDashboard,
+)
 from .schema_users_groups import (
     USERS_GROUPS_SCHEMA,
     USERS_GROUPS_VALIDATIONS,
@@ -81,6 +84,7 @@ async def async_setup(hass, whole_config):
 
     if FIELD_DASHBOARD_SETTINGS in config:
         PresenceDebugDashboard(config).add_to_hass(hass)
+        LightAutomationDebugDashboard(config).add_to_hass(hass)
 
     # Return boolean to indicate that initialization was successful.
     return True

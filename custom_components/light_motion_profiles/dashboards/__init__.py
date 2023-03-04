@@ -62,6 +62,74 @@ class PresenceDebugDashboard(GeneratedDashboard):
 
         return EntitiesCard(entities, title="User and Group presence")
 
+    def _build_per_user_overrides(self):
+        cards = []
+        for user, user_config in self._motion_config[FIELD_USERS].items():
+            entities = []
+            if user_config[FIELD_GUEST]:
+                entities.append(person_exists_entity(user))
+
+            if user_config[FIELD_TRACKING_ENTITY] is not None:
+                entities.append(user_config[FIELD_TRACKING_ENTITY])
+            elif not user_config[FIELD_GUEST]:
+                entities.append(
+                    {
+                        "entity": person_home_away_entity(user),
+                        "name": f"No tracking for {user}",
+                    }
+                )
+
+            entities += [
+                # Manual override
+                person_override_home_away_entity(user),
+                # Overall home/away status
+                person_home_away_entity(user),
+                # awake status selector
+                person_state_entity(user),
+                # final state for the user
+                person_presence_entity(user),
+            ]
+
+            cards.append(
+                EntitiesCard(
+                    title=user.replace("_", " ").capitalize(), entities=entities
+                )
+            )
+
+        return VerticalStackCard(cards=cards)
+
+    async def render(self):
+        views = [
+            View(
+                title=self.title,
+                cards=[
+                    VerticalStackCard(
+                        cards=[
+                            self._build_user_group_presence(),
+                            self._build_per_user_overrides(),
+                        ]
+                    )
+                ],
+            )
+        ]
+
+        rendered_dashboard = Dashboard(views).render()
+        _LOGGER.warning(f"{rendered_dashboard}")
+        return rendered_dashboard
+
+
+class LightAutomationDebugDashboard(GeneratedDashboard):
+    def __init__(self, motion_config):
+        self._motion_config = motion_config
+
+    @property
+    def title(self):
+        return "Lighting Debug"
+
+    @property
+    def url_path(self) -> str:
+        return "lighting-debug"
+
     def _build_motion_and_killswitches(self):
         binding_configs = self._motion_config[FIELD_MATERIALIZED_BINDINGS]
 
@@ -105,52 +173,14 @@ class PresenceDebugDashboard(GeneratedDashboard):
             ]
         )
 
-    def _build_per_user_overrides(self):
-        cards = []
-        for user, user_config in self._motion_config[FIELD_USERS].items():
-            entities = []
-            if user_config[FIELD_GUEST]:
-                entities.append(person_exists_entity(user))
-
-            if user_config[FIELD_TRACKING_ENTITY] is not None:
-                entities.append(user_config[FIELD_TRACKING_ENTITY])
-            elif not user_config[FIELD_GUEST]:
-                entities.append(
-                    {
-                        "entity": person_home_away_entity(user),
-                        "name": f"No tracking for {user}",
-                    }
-                )
-
-            entities += [
-                # Manual override
-                person_override_home_away_entity(user),
-                # Overall home/away status
-                person_home_away_entity(user),
-                # awake status selector
-                person_state_entity(user),
-                # final state for the user
-                person_presence_entity(user),
-            ]
-
-            cards.append(
-                EntitiesCard(
-                    title=user.replace("_", " ").capitalize(), entities=entities
-                )
-            )
-
-        return VerticalStackCard(cards=cards)
-
     async def render(self):
         views = [
             View(
-                title="Presence Debug",
+                title=self.title,
                 cards=[
                     VerticalStackCard(
                         cards=[
-                            self._build_user_group_presence(),
                             self._build_motion_and_killswitches(),
-                            self._build_per_user_overrides(),
                             self._build_light_bindings(),
                         ]
                     )
