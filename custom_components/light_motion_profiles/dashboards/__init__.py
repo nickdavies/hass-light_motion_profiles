@@ -118,17 +118,17 @@ class PresenceDebugDashboard(GeneratedDashboard):
         return rendered_dashboard
 
 
-class LightAutomationDebugDashboard(GeneratedDashboard):
+class MotionDebugDashboard(GeneratedDashboard):
     def __init__(self, motion_config):
         self._motion_config = motion_config
 
     @property
     def title(self):
-        return "Lighting Debug"
+        return "Motion Debug"
 
     @property
     def url_path(self) -> str:
-        return "lighting-debug"
+        return "motion-debug"
 
     def _build_motion_and_killswitches(self):
         binding_configs = self._motion_config[FIELD_MATERIALIZED_BINDINGS]
