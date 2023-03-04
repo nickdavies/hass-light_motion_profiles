@@ -130,7 +130,7 @@ class MotionDebugDashboard(GeneratedDashboard):
     def url_path(self) -> str:
         return "motion-debug"
 
-    def _build_motion_and_killswitches(self):
+    def _build_killswitches(self):
         binding_configs = self._motion_config[FIELD_MATERIALIZED_BINDINGS]
 
         motion = []
@@ -141,36 +141,47 @@ class MotionDebugDashboard(GeneratedDashboard):
                 {ENTITY: killswitch_entity(binding_name), NAME: binding_name}
             )
 
-        return VerticalStackCard(
-            cards=[
-                EntitiesCard(title="Motion states", entities=motion),
-                EntitiesCard(title="Killswitches", entities=killswitches),
-            ]
-        )
+        return EntitiesCard(title="Killswitches", entities=killswitches)
 
     def _build_light_bindings(self):
-        light_profile = []
-        light_movement = []
+        binding_configs = self._motion_config[FIELD_MATERIALIZED_BINDINGS]
+        bindings = []
         light_automation = []
-        for binding_name in self._motion_config[FIELD_MATERIALIZED_BINDINGS]:
-            light_profile.append(
-                {ENTITY: light_binding_profile_entity(binding_name), NAME: binding_name}
-            )
-            light_movement.append(
-                {ENTITY: light_movement_entity(binding_name), NAME: binding_name}
-            )
+
+        for binding_name, config in binding_configs.items():
             light_automation.append(
                 {ENTITY: light_automation_entity(binding_name), NAME: binding_name}
             )
+            bindings.append(
+                EntitiesCard(
+                    title=binding_name,
+                    entities=[
+                        {
+                            NAME: "Killswitch",
+                            ENTITY: killswitch_entity(binding_name),
+                        },
+                        {
+                            NAME: "Light state",
+                            ENTITY: light_automation_entity(binding_name),
+                        },
+                        {
+                            NAME: "Profile",
+                            ENTITY: light_binding_profile_entity(binding_name),
+                        },
+                        {
+                            NAME: "Movement",
+                            ENTITY: light_movement_entity(binding_name),
+                        },
+                        {NAME: "Motion", ENTITY: config[FIELD_MOTION_SENSOR_ENTITY]},
+                    ],
+                )
+            )
 
         return VerticalStackCard(
             cards=[
-                EntitiesCard(
-                    entities=light_automation, title="Light Automation States"
-                ),
-                EntitiesCard(entities=light_profile, title="Light Profiles"),
-                EntitiesCard(entities=light_movement, title="Movement states"),
+                EntitiesCard(entities=light_automation, title="Light Automation States")
             ]
+            + bindings
         )
 
     async def render(self):
@@ -180,7 +191,7 @@ class MotionDebugDashboard(GeneratedDashboard):
                 cards=[
                     VerticalStackCard(
                         cards=[
-                            self._build_motion_and_killswitches(),
+                            self._build_killswitches(),
                             self._build_light_bindings(),
                         ]
                     )
