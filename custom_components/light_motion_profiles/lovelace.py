@@ -1,4 +1,3 @@
-import itertools
 import logging
 
 from .schema_motion_profiles import (
@@ -33,6 +32,9 @@ from homeassistant.components.lovelace.const import MODE_YAML
 
 
 _LOGGER = logging.getLogger(__name__)
+
+ENTITY = "entity"
+NAME = "name"
 
 
 class Dashboard:
@@ -83,7 +85,12 @@ class HorizontalStackCard:
 class EntitiesCard:
     def __init__(self, entities, title=None):
         self.title = title
-        self.entities = entities
+        self.entities = []
+        for entity in entities:
+            if isinstance(entity, dict):
+                self.entities.append(entity)
+            else:
+                self.entities.append({"entity": entity})
 
     def render(self):
         config = {
@@ -142,7 +149,9 @@ class ManualLovelaceYAML(LovelaceConfig):
         killswitches = [killswitch_entity(MOTION_KILLSWITCH_GLOBAL)]
         for binding_name, binding_config in binding_configs.items():
             motion.append(binding_config[FIELD_MOTION_SENSOR_ENTITY])
-            killswitches.append(killswitch_entity(binding_name))
+            killswitches.append(
+                {ENTITY: killswitch_entity(binding_name), NAME: binding_name}
+            )
 
         return HorizontalStackCard(
             cards=[
@@ -156,19 +165,25 @@ class ManualLovelaceYAML(LovelaceConfig):
         light_movement = []
         light_automation = []
         for binding_name in self._motion_config[FIELD_MATERIALIZED_BINDINGS]:
-            light_profile.append(light_binding_profile_entity(binding_name))
-            light_movement.append(light_movement_entity(binding_name))
-            light_automation.append(light_automation_entity(binding_name))
+            light_profile.append(
+                {ENTITY: light_binding_profile_entity(binding_name), NAME: binding_name}
+            )
+            light_movement.append(
+                {ENTITY: light_movement_entity(binding_name), NAME: binding_name}
+            )
+            light_automation.append(
+                {ENTITY: light_automation_entity(binding_name), NAME: binding_name}
+            )
 
-        return [
-            EntitiesCard(entities=light_automation, title="Light Automation States"),
-            HorizontalStackCard(
-                cards=[
-                    EntitiesCard(entities=light_profile, title="Light Profiles"),
-                    EntitiesCard(entities=light_movement, title="Movement states"),
-                ]
-            ),
-        ]
+        return VerticalStackCard(
+            cards=[
+                EntitiesCard(
+                    entities=light_automation, title="Light Automation States"
+                ),
+                EntitiesCard(entities=light_profile, title="Light Profiles"),
+                EntitiesCard(entities=light_movement, title="Movement states"),
+            ]
+        )
 
     def _build_per_user_overrides(self):
         cards = []
@@ -226,7 +241,7 @@ class ManualLovelaceYAML(LovelaceConfig):
                             self._build_user_group_presence(),
                             self._build_motion_and_killswitches(),
                             self._build_per_user_overrides(),
-                            *self._build_light_bindings(),
+                            self._build_light_bindings(),
                         ]
                     )
                 ],
