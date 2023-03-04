@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import logging
 
 from .schema_motion_profiles import (
@@ -105,15 +106,15 @@ class EntitiesCard:
 
 
 class ManualLovelaceYAML(LovelaceConfig):
-    def __init__(self, hass, url_path, config, motion_config):
+    def __init__(self, hass, url_path, config, dashboard):
         super().__init__(hass, url_path, config)
-        self._motion_config = motion_config
+        self._dashboard = dashboard
         self._cache = None
 
     @property
     def mode(self) -> str:
         """Return mode of the lovelace config."""
-        return MODE_YAML
+        return self.config["mode"]
 
     async def async_get_info(self):
         config = await self.async_load(False)
@@ -129,9 +130,74 @@ class ManualLovelaceYAML(LovelaceConfig):
         if self._cache is not None:
             return False, self._cache
 
-        config = await self._build_dashboard()
+        config = await self._dashboard.render()
         self._cache = config
         return True, config
+
+
+class GeneratedDashboard(ABC):
+    @property
+    def mode(self) -> str:
+        """Return mode of the lovelace config."""
+        return MODE_YAML
+
+    @property
+    @abstractmethod
+    def title(self) -> str:
+        """The title of the dashboard displayed on the sidebar"""
+
+    @property
+    @abstractmethod
+    def url_path(self) -> str:
+        """The url slug for the dashboard"""
+
+    @property
+    def show_in_sidebar(self) -> bool:
+        """Determines if the dashboard is listed on the main sidebar"""
+        return True
+
+    @property
+    def require_admin(self) -> bool:
+        """Determines if the dashboard requires admin to access"""
+        return False
+
+    @property
+    def config(self):
+        return {
+            "mode": self.mode,
+            "title": self.title,
+            "show_in_sidebar": self.show_in_sidebar,
+            "require_admin": self.require_admin,
+        }
+
+    @abstractmethod
+    async def render(self) -> str:
+        """Build the YAML for the dashboard"""
+
+    def add_to_hass(self, hass):
+        url = self.url_path
+        dashboard_config = self.config
+
+        hass.data["lovelace"]["dashboards"][url] = ManualLovelaceYAML(
+            hass,
+            self.url_path,
+            dashboard_config,
+            self,
+        )
+        _register_panel(hass, url, dashboard_config["mode"], dashboard_config, False)
+
+
+class PresenceDebugDashboard(GeneratedDashboard):
+    def __init__(self, motion_config):
+        self._motion_config = motion_config
+
+    @property
+    def title(self):
+        return "Presence Debug"
+
+    @property
+    def url_path(self) -> str:
+        return "presence-debug"
 
     def _build_user_group_presence(self):
         entities = []
@@ -153,7 +219,7 @@ class ManualLovelaceYAML(LovelaceConfig):
                 {ENTITY: killswitch_entity(binding_name), NAME: binding_name}
             )
 
-        return HorizontalStackCard(
+        return VerticalStackCard(
             cards=[
                 EntitiesCard(title="Motion states", entities=motion),
                 EntitiesCard(title="Killswitches", entities=killswitches),
@@ -231,7 +297,7 @@ class ManualLovelaceYAML(LovelaceConfig):
 
         return VerticalStackCard(cards=rows)
 
-    async def _build_dashboard(self):
+    async def render(self):
         views = [
             View(
                 title="Presence Debug",
@@ -254,16 +320,4 @@ class ManualLovelaceYAML(LovelaceConfig):
 
 
 def setup_dashboard(hass, config):
-    dashboard_url = "presence-debug"
-    dashboard_config = {
-        "mode": "yaml",
-        "title": "Presence Debug",
-        "show_in_sidebar": True,
-        "require_admin": False,
-    }
-
-    hass.data["lovelace"]["dashboards"][dashboard_url] = ManualLovelaceYAML(
-        hass, dashboard_url, dashboard_config, config
-    )
-
-    _register_panel(hass, dashboard_url, "yaml", dashboard_config, False)
+    PresenceDebugDashboard(config).add_to_hass(hass)
