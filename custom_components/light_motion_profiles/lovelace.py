@@ -285,17 +285,7 @@ class PresenceDebugDashboard(GeneratedDashboard):
                 )
             )
 
-        rows = []
-        for left, right in itertools.zip_longest(cards[::2], cards[1::2]):
-            columns = []
-            columns.append(left)
-            if right is not None:
-                columns.append(right)
-
-            _LOGGER.warning(f"{left.title} {right.title}")
-            rows.append(HorizontalStackCard(cards=columns))
-
-        return VerticalStackCard(cards=rows)
+        return VerticalStackCard(cards=cards)
 
     async def render(self):
         views = [
