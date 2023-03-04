@@ -49,6 +49,7 @@ from .entity_names import (
     person_override_home_away_entity,
     person_presence_entity,
     person_state_entity,
+    light_movement_entity,
 )
 
 from homeassistant.components.light import (
@@ -128,6 +129,12 @@ async def async_setup_platform(
                 binding_name,
                 materialized_binding,
                 profile_icons,
+            )
+        )
+        light_sensors.append(
+            LightMovementEntity(
+                binding_name,
+                materialized_binding,
             )
         )
         light_sensors.append(
@@ -359,6 +366,74 @@ class LightProfileEntity(CalculatedSensor, SensorEntity):
                         return rule[FIELD_PROFILE]
 
         return self._default_profile
+
+
+class LightMovementEntity(CalculatedSensor, SensorEntity):
+
+    STATE_PRESENT = "present"
+    STATE_COOLDOWN = "cooldown"
+    STATE_NO_MOTION = "no_motion"
+
+    def __init__(self, binding_name, materialized_binding):
+        super().__init__()
+
+        self._attr_name = light_movement_entity(binding_name, without_domain=True)
+
+        self._no_motion_cb_cancel = None
+
+        self._motion_entity = materialized_binding[FIELD_MOTION_SENSOR_ENTITY]
+        self._no_motion_timeout = timedelta(
+            seconds=materialized_binding[FIELD_NO_MOTION_WAIT]
+        )
+
+        self._dependent_entities = [
+            self._motion_entity,
+        ]
+
+    async def async_added_to_hass(self):
+        def on_remove():
+            if self._no_motion_cb_cancel is not None:
+                self._no_motion_cb_cancel()
+                self._no_motion_cb_cancel = None
+
+        self.async_on_remove(on_remove)
+        return await super().async_added_to_hass()
+
+    def _no_motion_callback(self, *args, **kwargs):
+        _LOGGER.warning(f"No motion callback {self._attr_name}")
+        self._apply_and_save_state(self.STATE_NO_MOTION)
+
+    def _force_update(self, event):
+        motion_state = self.hass.states.get(self._motion_entity)
+        if motion_state is None:
+            return
+        motion_state = motion_state.state
+
+        new_state = None
+        if motion_state == STATE_ON:
+            # If we detect motion we cancel the callback if it exists
+            if self._no_motion_cb_cancel is not None:
+                self._no_motion_cb_cancel()
+                self._no_motion_cb_cancel = None
+            new_state = self.STATE_PRESENT
+        elif motion_state == STATE_OFF:
+            # If we we don't see motion but already have a callback we do nothing
+            if self._no_motion_cb_cancel:
+                return
+
+            # Otherwise we schedule the callback
+            self._no_motion_cb_cancel = async_track_point_in_utc_time(
+                self.hass,
+                self._no_motion_callback,
+                dt_util.utcnow() + self._no_motion_timeout,
+            )
+            new_state = self.STATE_COOLDOWN
+        else:
+            _LOGGER.warning(f"Unknown state for motion entity {motion_state}")
+            return
+
+        _LOGGER.info(f"new_state for {self._attr_name}={new_state}")
+        return self._apply_and_save_state(new_state)
 
 
 class LightAutomationEntity(CalculatedSensor, SensorEntity):
