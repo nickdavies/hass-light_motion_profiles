@@ -13,10 +13,12 @@ from ..lovelace import (
 
 from ..schema_motion_profiles import (
     FIELD_GROUPS,
+    FIELD_LIGHTS,
     FIELD_MATERIALIZED_BINDINGS,
+    FIELD_MOTION_SENSOR_ENTITY,
+    FIELD_MOTION_SENSORS,
     FIELD_USERS,
     MOTION_KILLSWITCH_GLOBAL,
-    FIELD_MOTION_SENSOR_ENTITY,
 )
 
 from ..schema_users_groups import (
@@ -152,36 +154,52 @@ class MotionDebugDashboard(GeneratedDashboard):
             light_automation.append(
                 {ENTITY: light_automation_entity(binding_name), NAME: binding_name}
             )
-            bindings.append(
-                EntitiesCard(
-                    title=binding_name,
-                    entities=[
-                        {
-                            NAME: "Killswitch",
-                            ENTITY: killswitch_entity(binding_name),
-                        },
-                        {
-                            NAME: "Light state",
-                            ENTITY: light_automation_entity(binding_name),
-                        },
-                        {
-                            NAME: "Profile",
-                            ENTITY: light_binding_profile_entity(binding_name),
-                        },
-                        {
-                            NAME: "Movement",
-                            ENTITY: light_movement_entity(binding_name),
-                        },
-                        {NAME: "Motion", ENTITY: config[FIELD_MOTION_SENSOR_ENTITY]},
-                    ],
-                )
-            )
+            entities = [
+                {
+                    NAME: "Killswitch",
+                    ENTITY: killswitch_entity(binding_name),
+                },
+                {NAME: "Light", ENTITY: config[FIELD_LIGHTS]},
+                {
+                    NAME: "Light state",
+                    ENTITY: light_automation_entity(binding_name),
+                },
+                {
+                    NAME: "Profile",
+                    ENTITY: light_binding_profile_entity(binding_name),
+                },
+                {
+                    NAME: "Movement",
+                    ENTITY: light_movement_entity(binding_name),
+                },
+                {NAME: "Motion", ENTITY: config[FIELD_MOTION_SENSOR_ENTITY]},
+            ]
+            motion = config[FIELD_MOTION_SENSORS]
+            if isinstance(motion, list):
+                entities += [{NAME: e, ENTITY: e} for e in motion]
+            else:
+                entities.append({NAME: motion, ENTITY: motion})
+            bindings.append(EntitiesCard(title=binding_name, entities=entities))
 
         return VerticalStackCard(
             cards=[
                 EntitiesCard(entities=light_automation, title="Light Automation States")
             ]
             + bindings
+        )
+
+    def _build_all_motion_inputs(self):
+        binding_configs = self._motion_config[FIELD_MATERIALIZED_BINDINGS]
+        entities = set()
+        for binding_name, config in binding_configs.items():
+            motion = config[FIELD_MOTION_SENSORS]
+            if isinstance(motion, list):
+                entities.update(motion)
+            else:
+                entities.add(motion)
+
+        return EntitiesCard(
+            entities=sorted(entities), title="All input motion sensor states"
         )
 
     async def render(self):
@@ -193,6 +211,7 @@ class MotionDebugDashboard(GeneratedDashboard):
                         cards=[
                             self._build_killswitches(),
                             self._build_light_bindings(),
+                            self._build_all_motion_inputs(),
                         ]
                     )
                 ],
