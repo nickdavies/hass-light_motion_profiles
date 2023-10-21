@@ -509,7 +509,7 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
                 "refusing to update {self._attr_name} because of global killswitch"
             )
             change_light = False
-            display_name = f"{light_profile_name}(killswitch)"
+            display_name = f"{light_profile_name}(global_ks)"
 
         killswitch = self.hass.states.get(self._killswitch_entity)
         if killswitch is not None and killswitch.state == STATE_ON:
@@ -517,7 +517,7 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
                 "refusing to update {self._attr_name} because of local killswitch"
             )
             change_light = False
-            display_name = f"{light_profile_name}(global_killswitch)"
+            display_name = f"{light_profile_name}(local_ks)"
 
         if motion_state == LightMovementEntity.STATE_COOLDOWN:
             display_name = f"{light_profile_name}(no_motion)"
