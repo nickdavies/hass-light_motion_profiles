@@ -458,6 +458,8 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
         self._movement_entity = light_movement_entity(binding_name)
 
         self._dependent_entities = [
+            self._global_killswitch_entity,
+            self._killswitch_entity,
             self._light_profile_entity,
             self._movement_entity,
         ]
