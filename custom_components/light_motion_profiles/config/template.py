@@ -1,4 +1,4 @@
-from typing import TypeVar, Generic, Dict, Set, Tuple, List
+from typing import TypeVar, Generic, Dict, Set, List
 
 V = TypeVar("V")
 T = TypeVar("T")
@@ -16,13 +16,13 @@ class UnknownInputError(InvalidTemplateError):
     pass
 
 
-class Template(Generic[V]):
+class Template(Generic[T, V]):
     def __init__(
-        self, name: str, content: V, inputs: Set[str], allow_extra: bool = False
+        self, name: str, content: T, inputs: Set[str], allow_extra: bool = False
     ):
         self.name = name
         try:
-            used_inputs, self._content = self.validate_inputs(content, inputs)
+            used_inputs = self.validate_inputs(content, inputs)
         except InvalidTemplateError as e:
             raise InvalidTemplateError(f"Invalid template {name}") from e
 
@@ -31,6 +31,7 @@ class Template(Generic[V]):
             raise UnusedInputError(
                 f"Invalid template {name}: unused inputs '{','.join(unused_inputs)}'"
             )
+        self._content = content
         self._inputs = used_inputs
 
     @classmethod
@@ -45,17 +46,19 @@ class Template(Generic[V]):
             return key
         return None
 
-    @classmethod
-    def _materialize_value(cls, template_value: str, inputs: Dict[str, str]) -> str:
-        for field, value in inputs.items():
-            if template_value == f"{{{field}}}":
-                return value
-        raise InvalidTemplateError(
-            f"Unable to materialize field '{value}' with: '{inputs}'"
-        )
+    def _materialize_value(self, template_value: str, inputs: Dict[str, str]) -> str:
+        if template_value[0] == "{" and template_value[-1] == "}":
+            key = template_value[1:-1]
+            if key not in inputs:
+                raise InvalidTemplateError(
+                    f"Unable to materialize '{self.name}' "
+                    f"value='{template_value}' with: '{inputs}'"
+                )
+            return inputs[key]
+        return template_value
 
     @classmethod
-    def validate_inputs(cls, content: V, inputs: Set[str]) -> Tuple[Set[str], V]:
+    def validate_inputs(cls, content: T, inputs: Set[str]) -> Set[str]:
         raise NotImplementedError
 
     def materialize(self, inputs: Dict[str, str]) -> V:
@@ -67,28 +70,17 @@ class Template(Generic[V]):
             )
         return self.materialize_unchecked(inputs)
 
-    def materialize_unchecked(self, inputs: Dict[str, str]) -> T:
+    def materialize_unchecked(self, inputs: Dict[str, str]) -> V:
         raise NotImplementedError
 
 
 class TemplateList(Template):
-    template_type: T
-
-    def __init__(self, name: str, content: List[V], inputs: Set[str]):
-        templated = []
-        for i, template in enumerate(content):
-            templated.append(
-                self.template_type(name + f".{i}", template, inputs, allow_extra=True)
-            )
-        super().__init__(name, templated, inputs)
-
     @classmethod
-    def validate_inputs(cls, content: List[T], inputs):
+    def validate_inputs(cls, content: List[Template], inputs):
         used = set()
         for template in content:
             used.update(template._inputs)
+        return used
 
-        return (used, content)
-
-    def materialize_unchecked(self, inputs: Dict[str, str]):
+    def materialize_unchecked(self, inputs: Dict[str, str]) -> List[V]:
         return [t.materialize_unchecked(inputs) for t in self._content]

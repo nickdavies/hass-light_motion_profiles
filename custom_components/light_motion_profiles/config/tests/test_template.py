@@ -13,14 +13,14 @@ class ExampleTemplate(Template):
     @classmethod
     def validate_inputs(cls, content, inputs):
         used = cls._validate_value(content, inputs)
-        return {used}, content
+        return {used}
 
     def materialize_unchecked(self, inputs):
         return self._materialize_value(self._content, inputs)
 
 
 class ExampleTemplateList(TemplateList):
-    template_type = ExampleTemplate
+    pass
 
 
 class TestTemplate(unittest.TestCase):
@@ -58,14 +58,15 @@ class TestTemplate(unittest.TestCase):
         )
 
     def test_list(self):
+        inputs = {"test", "bar"}
         example = ExampleTemplateList(
-            "example list template",
+            "invalid example_template list",
             [
-                "{test}",
-                "{test}",
-                "{bar}",
+                ExampleTemplate("test1", "{test}", inputs, allow_extra=True),
+                ExampleTemplate("test2", "{test}", {"test"}),
+                ExampleTemplate("test3", "{bar}", inputs, allow_extra=True),
             ],
-            {"test", "bar"},
+            inputs,
         )
 
         self.assertEqual(
@@ -77,14 +78,15 @@ class TestTemplate(unittest.TestCase):
         )
 
         with self.assertRaises(UnusedInputError):
+            inputs = {"test", "bar", "extra"}
             ExampleTemplateList(
                 "invalid example_template list",
                 [
-                    "{test}",
-                    "{test}",
-                    "{bar}",
+                    ExampleTemplate("test1", "{test}", inputs, allow_extra=True),
+                    ExampleTemplate("test2", "{test}", inputs, allow_extra=True),
+                    ExampleTemplate("test3", "{bar}", inputs, allow_extra=True),
                 ],
-                {"test", "bar", "extra"},
+                inputs,
             )
 
 
