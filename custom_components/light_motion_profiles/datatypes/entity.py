@@ -54,7 +54,7 @@ class Domains:
 
 @dataclass
 class InputEntity:
-    name: str
+    entity: str
 
 
 @dataclass
@@ -63,5 +63,5 @@ class Entity:
     name: str
 
     @property
-    def entity(self) -> str:
+    def full(self) -> str:
         return f"{self.domain}.{self.name}"
