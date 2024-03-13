@@ -29,7 +29,7 @@ class Domains:
     # This is the entity for the final calculated presence of a person
     person_presence: Domain
 
-    # This is the entity for the final calculated presence of a person
+    # This is the entity for the final calculated presence of a group
     group_presence: Domain
 
     # This is the entity for specifying if guests exist currently or not
@@ -44,8 +44,12 @@ class Domains:
     # this entity represents if we have seen movement in the timeout window
     movement: Domain
 
-    # This represents the current profile that is currently selected
+    # This represents the current profile that is currently selected ignoring
+    # killswitches and movement
     light_profile: Domain
+
+    # This entity represents the final profile that is currently applied to the light
+    light_automation: Domain
 
 
 @dataclass

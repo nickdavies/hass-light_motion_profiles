@@ -7,7 +7,7 @@ from ..config.light_profiles import (
     LightProfile as RawLightProfile,
 )
 from ..config.validators import InvalidConfigError
-from ..config.users_groups import UserConfig
+from ..config.users_groups import UserConfig as RawUserConfig
 from ..config.settings import (
     AllSettings as RawAllSettings,
     RoomSettings as RawRoomSettings,
@@ -16,7 +16,7 @@ from ..config.settings import (
     KillswitchSettings as RawKillswitchSettings,
 )
 
-from .entity import InputEntity, Domains as Domains
+from .entity import InputEntity, Domains as Domains, Entity
 from .match import RuleMatch
 from .source import DataSource
 
@@ -84,7 +84,7 @@ class LightGroup:
     name: str
     lights: InputEntity
     users: List[str]
-    occupancy_sensors: List[InputEntity]
+    occupancy_sensors: InputEntity | List[InputEntity]
     occupancy_timeout: DataSource
     rules: List[LightRule]
 
@@ -102,7 +102,7 @@ class LightGroup:
         self.occupancy_sensors = (
             [InputEntity(os) for os in config.occupancy_sensors]
             if isinstance(config.occupancy_sensors, list)
-            else [InputEntity(config.occupancy_sensors)]
+            else InputEntity(config.occupancy_sensors)
         )
         self.occupancy_timeout = DataSource(config.occupancy_timeout)
 
@@ -111,21 +111,142 @@ class LightGroup:
             for r in config.light_profile_rules
         ]
 
+    @property
+    def killswitch_entity(self) -> Entity:
+        return Entity(
+            domain=self._settings.domains.killswitch,
+            name=f"killswitch_motion_{self.name}",
+        )
+
+    @property
+    def motion_sensor_entity(self) -> Entity | InputEntity:
+        if isinstance(self.occupancy_sensors, list):
+            return self.motion_sensor_group_entity
+        else:
+            return self.occupancy_sensors
+
+    @property
+    def motion_sensor_group_entity(self) -> Entity:
+        assert isinstance(self.occupancy_sensors, list)
+        return Entity(
+            domain=self._settings.domains.motion_sensor_group,
+            name=f"motion_sensor_group_{self.name}",
+        )
+
+    @property
+    def light_binding_profile_entity(self) -> Entity:
+        return Entity(
+            domain=self._settings.domains.light_profile,
+            name=f"light_binding_output_{self.name}",
+        )
+
+    @property
+    def light_movement_entity(self) -> Entity:
+        return Entity(
+            domain=self._settings.domains.movement,
+            name=f"light_binding_movement_{self.name}",
+        )
+
+    @property
+    def light_automation_entity(self) -> Entity:
+        return Entity(
+            domain=self._settings.domains.light_automation,
+            name=f"light_binding_automation_{self.name}",
+        )
+
+
+@dataclass
+class User:
+    name: str
+    guest: bool
+    exists_icon: str | None
+    home_away_icons: Mapping[str, str]
+    state_icons: Mapping[str, str]
+    tracking_entity: InputEntity | None
+
+    def __init__(self, name: str, config: RawUserConfig, settings: Settings):
+        self._settings = settings
+        self.name = name
+        self.guest = config.guest
+        self.exists_icon = config.exists_icon
+        self.home_away_icons = config.home_away_icons
+        self.state_icons = config.state_icons
+        self.tracking_entity = (
+            InputEntity(config.tracking_entity) if config.tracking_entity else None
+        )
+
+    @property
+    def home_away_entity(self) -> Entity:
+        return Entity(
+            domain=self._settings.domains.person_home_away,
+            name=f"person_{self.name}",
+        )
+
+    @property
+    def home_away_override_entity(self) -> Entity:
+        return Entity(
+            domain=self._settings.domains.person_home_away_override,
+            name=f"{self.name}_status_override",
+        )
+
+    @property
+    def exists_entity(self) -> Entity:
+        assert self.guest
+        return Entity(
+            domain=self._settings.domains.person_exists,
+            name=f"person_{self.name}_exists",
+        )
+
+    @property
+    def state_entity(self) -> Entity:
+        return Entity(
+            domain=self._settings.domains.person_state,
+            name=f"person_{self.name}_awake_state",
+        )
+
+    @property
+    def presence_entity(self) -> Entity:
+        return Entity(
+            domain=self._settings.domains.person_presence,
+            name=f"person_presence_{self.name}",
+        )
+
+
+class Group:
+    name: str
+    members: Set[str]
+
+    def __init__(self, name: str, members: Set[str], settings: Settings):
+        self._settings = settings
+        self.name = name
+        self.members = members
+
+    @property
+    def presence_entity(self) -> Entity:
+        return Entity(
+            domain=self._settings.domains.group_presence,
+            name=f"group_presence_{self.name}",
+        )
+
 
 @dataclass
 class UsersGroups:
-    users: Mapping[str, UserConfig]
-    groups: Mapping[str, Set[str]]
+    users: Mapping[str, User]
+    groups: Mapping[str, Group]
 
     def __init__(
         self,
-        users: Mapping[str, UserConfig],
+        users: Mapping[str, RawUserConfig],
         groups: Mapping[str, Set[str]],
         settings: Settings,
     ) -> None:
         self._settings = settings
-        self.users = users
-        self.groups = groups
+        self.users = {
+            name: User(name, config, settings) for name, config in users.items()
+        }
+        self.groups = {
+            name: Group(name, members, settings) for name, members in groups.items()
+        }
         # Don't allow an invalid version of this object to ever exist
         self._validate(settings)
 
@@ -163,7 +284,7 @@ class UsersGroups:
                 f"Group '{group_name}' with the same name as a user is prohibited"
             )
 
-        for member in self.groups[group_name]:
+        for member in self.groups[group_name].members:
             if member not in self.groups and member not in self.users:
                 raise InvalidConfigError(
                     f"Group '{group_name}' contains unknown member '{member}'"
@@ -195,3 +316,10 @@ class Config:
             name: LightGroup(name, light_config, light_profiles, settings=self.settings)
             for name, light_config in raw_config.light_configs.items()
         }
+
+    @property
+    def global_killswitch_entity(self) -> Entity:
+        return Entity(
+            domain=self.settings.domains.killswitch,
+            name=f"killswitch_motion_{self.settings.killswitch.global_name}",
+        )
