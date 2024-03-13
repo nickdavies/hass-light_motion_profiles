@@ -6,7 +6,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .light_profiles import LightRule, LightProfile
 from .light_templates import AllTemplates
-from .settings import DashboardSettings, RoomSettings, UserGroupSettings
+from .settings import AllSettings
 from .users_groups import UserConfig
 from .validators import unique_list
 
@@ -77,28 +77,24 @@ class LightConfig:
 
 
 @dataclass
-class WholeConfig:
+class RawConfig:
     FIELD_TEMPLATES = "templates"
     FIELD_LIGHT_PROFILES = "light_profiles"
     FIELD_LIGHT_CONFIGS = "light_configs"
     FIELD_USERS = "users"
     FIELD_GROUPS = "groups"
-    FIELD_ROOM_SETTINGS = "room_settings"
-    FIELD_USER_GROUP_SETTINGS = "user_group_settings"
-    FIELD_DASHBOARD_SETTINGS = "debug_dashboard"
+    FIELD_SETTINGS = "settings"
 
     light_profiles: Mapping[str, LightProfile]
     light_configs: Mapping[str, LightConfig]
 
-    users: Set[str]
+    users: Mapping[str, UserConfig]
     groups: Mapping[str, Set[str]]
 
-    room_settings: RoomSettings
-    user_group_settings: UserGroupSettings
-    dashboard_settings: DashboardSettings | None
+    settings: AllSettings
 
     @classmethod
-    def from_yaml(cls, data: Mapping[str, Any]) -> "WholeConfig":
+    def from_yaml(cls, data: Mapping[str, Any]) -> "RawConfig":
         templates = AllTemplates.from_yaml(data[cls.FIELD_TEMPLATES])
         return cls(
             light_configs={
@@ -109,17 +105,12 @@ class WholeConfig:
                 name: LightProfile.from_yaml(value)
                 for name, value in data[cls.FIELD_LIGHT_PROFILES].items()
             },
-            users=set(data[cls.FIELD_USERS]),
+            users={
+                name: UserConfig.from_yaml(value)
+                for name, value in data[cls.FIELD_USERS].items()
+            },
             groups={name: set(users) for name, users in data[cls.FIELD_GROUPS].items()},
-            room_settings=RoomSettings.from_yaml(data[cls.FIELD_ROOM_SETTINGS]),
-            user_group_settings=UserGroupSettings.from_yaml(
-                data[cls.FIELD_USER_GROUP_SETTINGS]
-            ),
-            dashboard_settings=DashboardSettings.from_yaml(
-                data[cls.FIELD_DASHBOARD_SETTINGS]
-            )
-            if cls.FIELD_DASHBOARD_SETTINGS in data
-            else None,
+            settings=AllSettings.from_yaml(data[cls.FIELD_SETTINGS]),
         )
 
     @classmethod
@@ -131,9 +122,7 @@ class WholeConfig:
                 cls.FIELD_LIGHT_CONFIGS: {cv.string: LightConfig.vol()},
                 cls.FIELD_USERS: {cv.string: UserConfig.vol()},
                 cls.FIELD_GROUPS: {cv.string: unique_list(cv.string)},
-                cls.FIELD_ROOM_SETTINGS: RoomSettings.vol(),
-                cls.FIELD_USER_GROUP_SETTINGS: UserGroupSettings.vol(),
-                cls.FIELD_DASHBOARD_SETTINGS: DashboardSettings.vol(),
+                cls.FIELD_SETTINGS: AllSettings.vol(),
             }
         )
 

@@ -6,6 +6,10 @@ import voluptuous as vol
 T = TypeVar("T")
 
 
+class InvalidConfigError(Exception):
+    pass
+
+
 def unique_list(inner: Callable[[Any], T]) -> Callable[[Any], Set[T]]:
     def validator(data: Any) -> Set[T]:
         if not isinstance(data, list):

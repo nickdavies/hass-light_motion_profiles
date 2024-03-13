@@ -9,11 +9,7 @@ from typing import List, Mapping, Any
 import voluptuous as vol
 from homeassistant.helpers import config_validation as cv
 
-from .validators import unique_list
-
-
-class InvalidConfigError(Exception):
-    pass
+from .validators import unique_list, InvalidConfigError
 
 
 @dataclass
@@ -147,8 +143,8 @@ class LightProfile:
     FIELD_ICON = "icon"
     FIELD_BRIGHTNESS = "brightness_pct"
 
-    enabled: bool
-    icon: str
+    enabled: bool | None
+    icon: str | None
     brightness_pct: int | None
 
     @classmethod
@@ -157,8 +153,8 @@ class LightProfile:
         data: Mapping[str, Any],
     ) -> "LightProfile":
         return cls(
-            enabled=data[cls.FIELD_ENABLED],
-            icon=data[cls.FIELD_ICON],
+            enabled=data.get(cls.FIELD_ENABLED),
+            icon=data.get(cls.FIELD_ICON),
             brightness_pct=data.get(cls.FIELD_BRIGHTNESS),
         )
 
@@ -166,8 +162,8 @@ class LightProfile:
     def vol(cls) -> vol.Schema:
         return vol.Schema(
             {
-                cls.FIELD_ENABLED: cv.boolean,
-                cls.FIELD_ICON: cv.string,
+                vol.Optional(cls.FIELD_ENABLED): cv.boolean,
+                vol.Optional(cls.FIELD_ICON): cv.string,
                 vol.Optional(cls.FIELD_BRIGHTNESS): cv.positive_int,
             }
         )

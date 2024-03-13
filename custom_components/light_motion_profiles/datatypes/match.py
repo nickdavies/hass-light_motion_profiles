@@ -2,6 +2,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Set, Mapping
 
+from ..config.validators import InvalidConfigError
+from ..config.light_profiles import Match as RawMatch, UserState as RawUserState
+
 
 class MatchError(Exception):
     pass
@@ -11,6 +14,15 @@ class MatchSingle(ABC):
     @abstractmethod
     def match(self, target_value: str) -> bool:
         pass
+
+    @classmethod
+    def from_raw(cls, m: RawMatch) -> "MatchSingle":
+        if isinstance(m.value, list):
+            return MatchSingleAny(m.value)
+        elif m.value == "*":
+            return MatchSingleWildcard()
+        else:
+            return MatchSingleExplicit(m.value)
 
 
 class MatchSingleExplicit(MatchSingle):
@@ -89,6 +101,21 @@ class MatchUser(ABC):
     def match(self, all_users_states: Mapping[str, str | Set[str]]) -> bool:
         pass
 
+    @classmethod
+    def from_raw(cls, config: RawUserState) -> "MatchUser":
+        multi: MatchMulti
+        if config.state_any is not None:
+            multi = MatchMultiAny(MatchSingle.from_raw(config.state_any))
+        elif config.state_all is not None:
+            multi = MatchMultiAll(MatchSingle.from_raw(config.state_all))
+        elif config.state_exact is not None:
+            multi = MatchMultiExact(MatchSingle.from_raw(config.state_exact))
+
+        return MatchUserSingle(
+            user=config.user,
+            match_multi=multi,
+        )
+
 
 class MatchUserSingle(MatchUser):
     def match(self, all_users_states: Mapping[str, str | Set[str]]) -> bool:
@@ -111,6 +138,26 @@ class RuleMatch:
     room_state: MatchSingle
     occupancy: MatchSingle
     user_state: List[MatchUser]
+
+    def __init__(
+        self,
+        room_state: RawMatch,
+        occupancy: RawMatch,
+        user_state: List[RawUserState] | RawMatch,
+    ) -> None:
+        self.room_state = MatchSingle.from_raw(room_state)
+        self.occupancy = MatchSingle.from_raw(occupancy)
+
+        if isinstance(user_state, RawMatch):
+            m = MatchSingle.from_raw(user_state)
+            if not isinstance(m, MatchSingleWildcard):
+                raise InvalidConfigError(
+                    "Using a single value for user state is only allowed to "
+                    f"contain '*' not '{user_state.value}'"
+                )
+            self.user_state = [MatchUserWildcard()]
+        else:
+            self.user_state = [MatchUser.from_raw(us) for us in user_state]
 
     def match(
         self,

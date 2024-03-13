@@ -1,6 +1,12 @@
+from typing import Any
+
+
 class DataSource:
-    pass
+    value: Any
+
+    def __init__(self, value: Any):
+        self.value = value
 
 
 class TriggerSource:
-    pass
+    value: str
