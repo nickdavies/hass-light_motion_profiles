@@ -1,106 +1,83 @@
 import logging
 
+from typing import List, Dict, Set, Sequence
+
 from ..lovelace import (
-    ENTITY,
-    NAME,
-    GeneratedDashboard,
-    EntitiesCard,
+    DBT,
     Dashboard,
-    View,
+    EntitiesCard,
+    ENTITY,
+    GeneratedDashboard,
+    NAME,
+    Renderable,
     VerticalStackCard,
+    View,
 )
 
-
-from ..schema_motion_profiles import (
-    FIELD_GROUPS,
-    FIELD_LIGHTS,
-    FIELD_MATERIALIZED_BINDINGS,
-    FIELD_MOTION_SENSOR_ENTITY,
-    FIELD_MOTION_SENSORS,
-    FIELD_USERS,
-    MOTION_KILLSWITCH_GLOBAL,
-)
-
-from ..schema_users_groups import (
-    FIELD_GUEST,
-    FIELD_TRACKING_ENTITY,
-)
-
-from ..entity_names import (
-    group_presence_entity,
-    killswitch_entity,
-    light_automation_entity,
-    light_binding_profile_entity,
-    person_exists_entity,
-    person_home_away_entity,
-    person_override_home_away_entity,
-    person_presence_entity,
-    person_state_entity,
-    light_movement_entity,
-)
+from ..datatypes import Config, UsersGroups
 
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class PresenceDebugDashboard(GeneratedDashboard):
-    def __init__(self, motion_config):
-        self._motion_config = motion_config
+    def __init__(self, config: UsersGroups) -> None:
+        self._ug_config = config
 
     @property
-    def title(self):
+    def title(self) -> str:
         return "Presence Debug"
 
     @property
     def url_path(self) -> str:
         return "presence-debug"
 
-    def _build_user_group_presence(self):
+    def _build_user_group_presence(self) -> Renderable:
         entities = []
-        for user in self._motion_config[FIELD_USERS]:
-            entities.append(person_presence_entity(user))
-        for group in self._motion_config[FIELD_GROUPS]:
-            entities.append(group_presence_entity(group))
+        for name, user in self._ug_config.users.items():
+            entities.append(user.presence_entity.full)
+        for name, group in self._ug_config.groups.items():
+            entities.append(group.presence_entity.full)
 
         return EntitiesCard(entities, title="User and Group presence")
 
-    def _build_per_user_overrides(self):
-        cards = []
-        for user, user_config in self._motion_config[FIELD_USERS].items():
-            entities = []
-            if user_config[FIELD_GUEST]:
-                entities.append(person_exists_entity(user))
+    def _build_per_user_overrides(self) -> Renderable:
+        cards: List[Renderable] = []
+        for name, user in self._ug_config.users.items():
+            entities: List[str | Dict[str, str]] = []
+            if user.guest:
+                entities.append(user.exists_entity.full)
 
-            if user_config[FIELD_TRACKING_ENTITY] is not None:
-                entities.append(user_config[FIELD_TRACKING_ENTITY])
-            elif not user_config[FIELD_GUEST]:
+            if user.tracking_entity is not None:
+                entities.append(user.tracking_entity.entity)
+            elif not user.guest:
                 entities.append(
                     {
-                        "entity": person_home_away_entity(user),
-                        "name": f"No tracking for {user}",
+                        "entity": user.home_away_entity.full,
+                        "name": f"No tracking for {user.name}",
                     }
                 )
 
             entities += [
                 # Manual override
-                person_override_home_away_entity(user),
+                user.home_away_override_entity.full,
                 # Overall home/away status
-                person_home_away_entity(user),
+                user.home_away_entity.full,
                 # awake status selector
-                person_state_entity(user),
+                user.state_entity.full,
                 # final state for the user
-                person_presence_entity(user),
+                user.presence_entity.full,
             ]
 
             cards.append(
                 EntitiesCard(
-                    title=user.replace("_", " ").capitalize(), entities=entities
+                    title=name.replace("_", " ").capitalize(), entities=entities
                 )
             )
 
         return VerticalStackCard(cards=cards)
 
-    async def render(self):
+    async def render(self) -> DBT:
         views = [
             View(
                 title=self.title,
@@ -121,88 +98,91 @@ class PresenceDebugDashboard(GeneratedDashboard):
 
 
 class MotionDebugDashboard(GeneratedDashboard):
-    def __init__(self, motion_config):
-        self._motion_config = motion_config
+    def __init__(self, config: Config) -> None:
+        self._motion_config = config
 
     @property
-    def title(self):
+    def title(self) -> str:
         return "Motion Debug"
 
     @property
     def url_path(self) -> str:
         return "motion-debug"
 
-    def _build_killswitches(self):
-        binding_configs = self._motion_config[FIELD_MATERIALIZED_BINDINGS]
-
-        motion = []
-        killswitches = [killswitch_entity(MOTION_KILLSWITCH_GLOBAL)]
-        for binding_name, binding_config in binding_configs.items():
-            motion.append(binding_config[FIELD_MOTION_SENSOR_ENTITY])
-            killswitches.append(
-                {ENTITY: killswitch_entity(binding_name), NAME: binding_name}
-            )
+    def _build_killswitches(self) -> EntitiesCard:
+        killswitches: List[str | Dict[str, str]] = [
+            self._motion_config.global_killswitch_entity.full
+        ]
+        for name, config in self._motion_config.lights.items():
+            killswitches.append({ENTITY: config.killswitch_entity.full, NAME: name})
 
         return EntitiesCard(title="Killswitches", entities=killswitches)
 
-    def _build_light_bindings(self):
-        binding_configs = self._motion_config[FIELD_MATERIALIZED_BINDINGS]
+    def _build_light_bindings(self) -> VerticalStackCard:
         bindings = []
         light_automation = []
 
-        for binding_name, config in binding_configs.items():
+        for name, config in self._motion_config.lights.items():
             light_automation.append(
-                {ENTITY: light_automation_entity(binding_name), NAME: binding_name}
+                {ENTITY: config.light_automation_entity.full, NAME: name}
             )
-            entities = [
+            entities: List[str | Dict[str, str]] = [
                 {
                     NAME: "Killswitch",
-                    ENTITY: killswitch_entity(binding_name),
+                    ENTITY: config.killswitch_entity.full,
                 },
-                {NAME: "Light", ENTITY: config[FIELD_LIGHTS]},
+                {NAME: "Light", ENTITY: config.lights.entity},
                 {
                     NAME: "Light state",
-                    ENTITY: light_automation_entity(binding_name),
+                    ENTITY: config.light_automation_entity.full,
                 },
                 {
-                    NAME: "Profile",
-                    ENTITY: light_binding_profile_entity(binding_name),
+                    NAME: "Rule",
+                    ENTITY: config.light_rule_entity.full,
                 },
                 {
-                    NAME: "Movement",
-                    ENTITY: light_movement_entity(binding_name),
+                    NAME: "Occupancy",
+                    ENTITY: config.room_occupancy_entity.full,
                 },
-                {NAME: "Motion", ENTITY: config[FIELD_MOTION_SENSOR_ENTITY]},
+                {
+                    NAME: "Motion",
+                    ENTITY: config.motion_sensor_group_entity.full
+                    if isinstance(config.occupancy_sensors, list)
+                    else config.occupancy_sensors.entity,
+                },
             ]
-            motion = config[FIELD_MOTION_SENSORS]
-            if isinstance(motion, list):
-                entities += [{NAME: e, ENTITY: e} for e in motion]
+            if isinstance(config.occupancy_sensors, list):
+                entities += [
+                    {NAME: e.entity, ENTITY: e.entity} for e in config.occupancy_sensors
+                ]
             else:
-                entities.append({NAME: motion, ENTITY: motion})
-            bindings.append(EntitiesCard(title=binding_name, entities=entities))
+                entities.append(
+                    {
+                        NAME: config.occupancy_sensors.entity,
+                        ENTITY: config.occupancy_sensors.entity,
+                    }
+                )
+            bindings.append(EntitiesCard(title=name, entities=entities))
 
-        return VerticalStackCard(
-            cards=[
-                EntitiesCard(entities=light_automation, title="Light Automation States")
-            ]
-            + bindings
-        )
+        cards: Sequence[Renderable] = [
+            EntitiesCard(entities=light_automation, title="Light Automation States")
+        ] + bindings
+        return VerticalStackCard(cards=cards)
 
-    def _build_all_motion_inputs(self):
-        binding_configs = self._motion_config[FIELD_MATERIALIZED_BINDINGS]
-        entities = set()
-        for binding_name, config in binding_configs.items():
-            motion = config[FIELD_MOTION_SENSORS]
+    def _build_all_motion_inputs(self) -> EntitiesCard:
+        entities: Set[str] = set()
+        for name, config in self._motion_config.lights.items():
+            motion = config.occupancy_sensors
             if isinstance(motion, list):
-                entities.update(motion)
+                entities.update(e.entity for e in motion)
             else:
-                entities.add(motion)
+                entities.add(motion.entity)
 
         return EntitiesCard(
             entities=sorted(entities), title="All input motion sensor states"
         )
 
-    async def render(self):
+    async def render(self) -> DBT:
         views = [
             View(
                 title=self.title,
