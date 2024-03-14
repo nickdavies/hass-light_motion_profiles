@@ -31,18 +31,46 @@ class KillswitchSettings:
 
 
 @dataclass
+class OccupancyStates:
+    occupied: str
+    occupied_timeout: str
+    empty: str
+    unknown: str
+
+    def all_states(cls) -> Set[str]:
+        return {
+            cls.occupied,
+            cls.occupied_timeout,
+            cls.empty,
+            cls.unknown,
+        }
+
+    @classmethod
+    def from_yaml(cls) -> "OccupancyStates":
+        return cls(
+            occupied="occupied",
+            occupied_timeout="occupied_timeout",
+            empty="empty",
+            unknown="unknown",
+        )
+
+    @classmethod
+    def vol(cls) -> vol.Schema:
+        return vol.Schema(vol.Any(None, {}))
+
+
+@dataclass
 class RoomSettings:
     FIELD_VALID_ROOM_STATES = "valid_room_states"
-    FIELD_VALID_OCCUPANCY_STATES = "valid_occupancy_states"
 
     valid_room_states: Set[str]
-    valid_occupancy_states: Set[str]
+    occupancy_states: OccupancyStates
 
     @classmethod
     def from_yaml(cls, data: Mapping[str, List[str]]) -> "RoomSettings":
         return cls(
             valid_room_states=set(data[cls.FIELD_VALID_ROOM_STATES]),
-            valid_occupancy_states=set(data[cls.FIELD_VALID_OCCUPANCY_STATES]),
+            occupancy_states=OccupancyStates.from_yaml(),
         )
 
     @classmethod
@@ -50,7 +78,6 @@ class RoomSettings:
         return vol.Schema(
             {
                 cls.FIELD_VALID_ROOM_STATES: unique_list(cv.string),
-                cls.FIELD_VALID_OCCUPANCY_STATES: unique_list(cv.string),
             },
         )
 
@@ -91,12 +118,14 @@ class UserGroupSettings:
     valid_person_states: Set[str]
     absent_state: str
     home_away_states: HomeAwayStates
+    state_if_unknown: str
 
     @classmethod
     def from_yaml(cls, data: Mapping[str, List[str]]) -> "UserGroupSettings":
         return cls(
             valid_person_states=set(data[cls.FIELD_VALID_PERSON_STATES]),
             absent_state="absent",
+            state_if_unknown="absent",
             home_away_states=HomeAwayStates.from_yaml(),
         )
 

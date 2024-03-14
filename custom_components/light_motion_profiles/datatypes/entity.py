@@ -1,8 +1,8 @@
-from enum import StrEnum
+from enum import Enum
 from dataclasses import dataclass
 
 
-class Domain(StrEnum):
+class Domain(Enum):
     SENSOR = "sensor"
     SELECT = "select"
     SWITCH = "switch"
@@ -41,12 +41,12 @@ class Domains:
     # This is the entity used for any aggregated motion for an area
     motion_sensor_group: Domain
 
-    # this entity represents if we have seen movement in the timeout window
-    movement: Domain
+    # This entity represents the current occupancy state of a given room
+    room_occupancy: Domain
 
-    # This represents the current profile that is currently selected ignoring
-    # killswitches and movement
-    light_profile: Domain
+    # This entity represent the currently selected light rule based on the
+    # occupancy, user state and room state
+    light_rule: Domain
 
     # This entity represents the final profile that is currently applied to the light
     light_automation: Domain
@@ -64,4 +64,4 @@ class Entity:
 
     @property
     def full(self) -> str:
-        return f"{self.domain}.{self.name}"
+        return f"{self.domain.value}.{self.name}"

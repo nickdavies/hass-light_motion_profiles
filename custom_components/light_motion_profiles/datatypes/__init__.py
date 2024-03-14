@@ -10,22 +10,22 @@ from ..config.validators import InvalidConfigError
 from ..config.users_groups import UserConfig as RawUserConfig
 from ..config.settings import (
     AllSettings as RawAllSettings,
-    RoomSettings as RawRoomSettings,
-    UserGroupSettings as RawUserGroupSettings,
-    DashboardSettings as RawDashboardSettings,
-    KillswitchSettings as RawKillswitchSettings,
+    RoomSettings as RoomSettings,
+    UserGroupSettings as UserGroupSettings,
+    DashboardSettings as DashboardSettings,
+    KillswitchSettings as KillswitchSettings,
 )
 
-from .entity import InputEntity, Domains as Domains, Entity
+from .entity import InputEntity, Domains as Domains, Entity as Entity
 from .match import RuleMatch
 from .source import DataSource
 
 
 class Settings:
-    room: RawRoomSettings
-    users_groups: RawUserGroupSettings
-    dashboard: RawDashboardSettings | None
-    killswitch: RawKillswitchSettings
+    room: RoomSettings
+    users_groups: UserGroupSettings
+    dashboard: DashboardSettings | None
+    killswitch: KillswitchSettings
 
     def __init__(self, config: RawAllSettings, domains: Domains):
         self.domains = domains
@@ -37,16 +37,18 @@ class Settings:
 
 @dataclass
 class LightState:
-    icon: DataSource
-    enable: DataSource
+    source_profile: str | None
+    icon: DataSource | None
+    enable: DataSource | None
     brightness: DataSource | None
     color: DataSource | None
     transition: DataSource
 
-    def __init__(self, config: RawLightProfile, settings: Settings):
+    def __init__(self, profile_name: str, config: RawLightProfile, settings: Settings):
         self._settings = settings
-        self.icon = DataSource(str(config.icon))
-        self.enable = DataSource(bool(config.enabled))
+        self.source_profile = profile_name
+        self.icon = DataSource(str(config.icon)) if config.icon else None
+        self.enable = DataSource(bool(config.enabled)) if config.enabled else None
         self.brightness = (
             DataSource(int(config.brightness_pct)) if config.brightness_pct else None
         )
@@ -119,9 +121,9 @@ class LightGroup:
         )
 
     @property
-    def motion_sensor_entity(self) -> Entity | InputEntity:
+    def motion_sensor_entity(self) -> InputEntity:
         if isinstance(self.occupancy_sensors, list):
-            return self.motion_sensor_group_entity
+            return InputEntity(self.motion_sensor_group_entity.full)
         else:
             return self.occupancy_sensors
 
@@ -134,17 +136,17 @@ class LightGroup:
         )
 
     @property
-    def light_binding_profile_entity(self) -> Entity:
+    def room_occupancy_entity(self) -> Entity:
         return Entity(
-            domain=self._settings.domains.light_profile,
-            name=f"light_binding_output_{self.name}",
+            domain=self._settings.domains.room_occupancy,
+            name=f"light_binding_occupancy_{self.name}",
         )
 
     @property
-    def light_movement_entity(self) -> Entity:
+    def light_rule_entity(self) -> Entity:
         return Entity(
-            domain=self._settings.domains.movement,
-            name=f"light_binding_movement_{self.name}",
+            domain=self._settings.domains.light_rule,
+            name=f"light_binding_rule_{self.name}",
         )
 
     @property
@@ -250,13 +252,19 @@ class UsersGroups:
         # Don't allow an invalid version of this object to ever exist
         self._validate(settings)
 
+    def presence_entity(self, target: str) -> Entity:
+        if target in self.users:
+            return self.users[target].presence_entity
+        else:
+            return self.groups[target].presence_entity
+
     def _validate(self, settings: Settings) -> None:
         for group_name in self.groups:
             self._validate_group_members(group_name)
 
         self._validate_states_and_icons(settings)
 
-    def _validate_states_and_icons(self, settings: Settings):
+    def _validate_states_and_icons(self, settings: Settings) -> None:
         ug_settings = settings.users_groups
         valid_state_names = set(ug_settings.valid_person_states) | {
             ug_settings.absent_state
@@ -298,16 +306,16 @@ class UsersGroups:
 @dataclass
 class Config:
     settings: Settings
-    users: UsersGroups
+    users_groups: UsersGroups
     lights: Mapping[str, LightGroup]
 
     def __init__(self, raw_config: RawConfig, domains: Domains):
         self.settings = Settings(raw_config.settings, domains)
         light_profiles: Dict[str, LightState] = {
-            name: LightState(config, settings=self.settings)
+            name: LightState(name, config, settings=self.settings)
             for name, config in raw_config.light_profiles.items()
         }
-        self.users = UsersGroups(
+        self.users_groups = UsersGroups(
             users=raw_config.users,
             groups=raw_config.groups,
             settings=self.settings,

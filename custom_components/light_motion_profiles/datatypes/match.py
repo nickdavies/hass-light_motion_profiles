@@ -94,9 +94,6 @@ class MatchMultiExact(MatchMulti):
 
 @dataclass
 class MatchUser(ABC):
-    user: str
-    match_multi: MatchMulti
-
     @abstractmethod
     def match(self, all_users_states: Mapping[str, str | Set[str]]) -> bool:
         pass
@@ -117,7 +114,11 @@ class MatchUser(ABC):
         )
 
 
+@dataclass
 class MatchUserSingle(MatchUser):
+    user: str
+    match_multi: MatchMulti
+
     def match(self, all_users_states: Mapping[str, str | Set[str]]) -> bool:
         user_state = all_users_states.get(self.user)
         if user_state is None:
