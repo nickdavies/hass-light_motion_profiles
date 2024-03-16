@@ -176,7 +176,6 @@ class UserHomeAwaySensor(CalculatedSensor[str], SensorEntity):
 
     def calculate_current_state(self) -> str:
         override = self.hass.states.get(self._override_entity)
-        _LOGGER.warning(f"HERE: {self._override_entity} {override}")
         if override is not None and override.state != self._state_auto:
             return override.state
 
@@ -376,7 +375,10 @@ class LightRuleEntity(CalculatedSensor[str | None], SensorEntity):
         if any(v is None for v in user_states.values()):
             pass
         else:
-            user_states = {m: e.state for m, e in user_states.items()}
+            user_states = {
+                m: GroupPresenceSensor.deserialize(e.state)
+                for m, e in user_states.items()
+            }
 
         for rule in self._rules:
             if rule.rule_match.match(room_state, occupancy, user_states):
@@ -423,7 +425,7 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
         return rule_state.state
 
     def _apply_state(self, light_rule: str | None) -> bool:
-        if light_rule is None:
+        if light_rule is None or light_rule == "unknown":
             return False
         target = self._states[light_rule]
 
@@ -432,6 +434,7 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
         )
         display_name = base_display_name
         global_killswitch = self.hass.states.get(self._global_killswitch_entity)
+        change_light = True
         if global_killswitch is not None and global_killswitch.state == STATE_ON:
             _LOGGER.info(
                 "refusing to update {self._attr_name} because of global killswitch"
