@@ -143,10 +143,12 @@ class LightProfile:
     FIELD_ENABLED = "enabled"
     FIELD_ICON = "icon"
     FIELD_BRIGHTNESS = "brightness_pct"
+    FIELD_TRANSITION = "transition"
 
     enabled: bool | None
     icon: str | None
     brightness_pct: int | None
+    transition: int | None
 
     @classmethod
     def from_yaml(
@@ -157,6 +159,7 @@ class LightProfile:
             enabled=data.get(cls.FIELD_ENABLED),
             icon=data.get(cls.FIELD_ICON),
             brightness_pct=data.get(cls.FIELD_BRIGHTNESS),
+            transition=data.get(cls.FIELD_TRANSITION),
         )
 
     @classmethod
@@ -166,5 +169,6 @@ class LightProfile:
                 vol.Optional(cls.FIELD_ENABLED): cv.boolean,
                 vol.Optional(cls.FIELD_ICON): cv.string,
                 vol.Optional(cls.FIELD_BRIGHTNESS): cv.positive_int,
+                vol.Optional(cls.FIELD_TRANSITION): cv.positive_int,
             }
         )

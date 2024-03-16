@@ -57,7 +57,9 @@ class LightState:
             else None
         )
         self.color = None
-        self.transition = DataSource(0)
+        self.transition = DataSource(
+            config.transition if config.transition is not None else 0
+        )
 
 
 @dataclass
