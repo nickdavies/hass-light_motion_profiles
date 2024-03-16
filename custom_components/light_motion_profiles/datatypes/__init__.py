@@ -96,6 +96,7 @@ class LightGroup:
         config: RawLightConfig,
         light_profiles: Dict[str, LightState],
         settings: Settings,
+        users_groups: "UsersGroups",
     ):
         self._settings = settings
         self.name = name
@@ -112,6 +113,19 @@ class LightGroup:
             LightRule(r, light_profiles=light_profiles, settings=self._settings)
             for r in config.light_profile_rules
         ]
+
+        rule_users = self.get_rule_users()
+        if self.user in users_groups.users:
+            invalid = rule_users - {self.user}
+        else:
+            members = set(users_groups.members(self.user))
+            invalid = rule_users - members - {self.user}
+        if invalid:
+            raise ValueError(
+                f"Found invalid members '{', '.join(invalid)}' in rule '{name}'. "
+                "All users specified in rule matches must be contained in the group "
+                f"'{self.user}' listed in the rule definition"
+            )
 
     def get_rule_users(self) -> Set[str]:
         out = set()
@@ -358,7 +372,13 @@ class Config:
             settings=self.settings,
         )
         self.lights = {
-            name: LightGroup(name, light_config, light_profiles, settings=self.settings)
+            name: LightGroup(
+                name,
+                light_config,
+                light_profiles,
+                settings=self.settings,
+                users_groups=self.users_groups,
+            )
             for name, light_config in raw_config.light_configs.items()
         }
 
