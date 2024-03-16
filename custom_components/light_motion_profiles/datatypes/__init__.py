@@ -48,9 +48,13 @@ class LightState:
         self._settings = settings
         self.source_profile = profile_name
         self.icon = DataSource(str(config.icon)) if config.icon else None
-        self.enable = DataSource(bool(config.enabled)) if config.enabled else None
+        self.enable = (
+            DataSource(bool(config.enabled)) if config.enabled is not None else None
+        )
         self.brightness = (
-            DataSource(int(config.brightness_pct)) if config.brightness_pct else None
+            DataSource(int(config.brightness_pct))
+            if config.brightness_pct is not None
+            else None
         )
         self.color = None
         self.transition = DataSource(0)

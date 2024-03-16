@@ -50,13 +50,13 @@ class UserState:
         out = cls(
             user=data[cls.FIELD_USER],
             state_any=Match.from_yaml(data[cls.FIELD_STATE_ANY])
-            if data.get(cls.FIELD_STATE_ANY)
+            if cls.FIELD_STATE_ANY in data
             else None,
             state_all=Match.from_yaml(data[cls.FIELD_STATE_ALL])
-            if data.get(cls.FIELD_STATE_ALL)
+            if cls.FIELD_STATE_ALL in data
             else None,
             state_exact=Match.from_yaml(data[cls.FIELD_STATE_EXACT])
-            if data.get(cls.FIELD_STATE_EXACT)
+            if cls.FIELD_STATE_EXACT in data
             else None,
         )
 
