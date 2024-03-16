@@ -20,10 +20,47 @@ LOGGER = logging.getLogger(__name__)
 def build_argparse() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("config_file")
-    parser.add_argument("light_group")
-    parser.add_argument("--no-compress", action="store_true")
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    single_parser = subparsers.add_parser(
+        "single", help="Show the truth table for a single light rule"
+    )
+    single_parser.add_argument("light_group")
+
+    subparsers.add_parser(
+        "unassigned", help="Search all light groups for any unassigned states"
+    )
 
     return parser
+
+
+def cmd_single(args, config: Config):
+    light_group = config.lights[args.light_group]
+    results = list(gen_light_group_matches(light_group, config))
+    results.sort(key=lambda r: (r.room, r.occupancy))
+
+    table = tabulate.tabulate((r.to_tabulate() for r in results), headers="keys")
+    print(table)
+
+
+def cmd_unassigned(args, config: Config):
+    unassigned = []
+    for lg_name, light_group in config.lights.items():
+        for result in gen_light_group_matches(light_group, config):
+            if result.rule_name is None:
+                unassigned.append((lg_name, result))
+
+    if unassigned:
+        unassigned.sort(key=lambda r: (r[0], r[1].room, r[1].occupancy))
+        out = []
+        for lg, result in unassigned:
+            row = {"light_group": lg}
+            row.update(result.to_tabulate())
+            del row["rule_name"]
+            out.append(row)
+
+        print(tabulate.tabulate(out, headers="keys"))
 
 
 if __name__ == "__main__":
@@ -48,9 +85,7 @@ if __name__ == "__main__":
     domains = build_domains()
     config = Config(raw_config, domains)
 
-    light_group = config.lights[args.light_group]
-    results = list(gen_light_group_matches(light_group, config))
-    results.sort(key=lambda r: (r.room, r.occupancy))
-
-    table = tabulate.tabulate((r.to_tabulate() for r in results), headers="keys")
-    print(table)
+    if args.command == "single":
+        cmd_single(args, config)
+    elif args.command == "unassigned":
+        cmd_unassigned(args, config)
