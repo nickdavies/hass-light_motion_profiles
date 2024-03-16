@@ -17,11 +17,12 @@ class NoSuchTemplateError(Exception):
     pass
 
 
-class TemplateMatch(Template[str | List[str], Match]):
+class TemplateMatch(Template[str | Set[str], Match]):
     @classmethod
-    def validate_inputs(cls, content: str | List[str], inputs: Set[str]) -> Set[str]:
+    def validate_inputs(cls, content: str | Set[str], inputs: Set[str]) -> Set[str]:
+        assert isinstance(content, str) or isinstance(content, set)
         used = set()
-        if isinstance(content, list):
+        if isinstance(content, set):
             for value in content:
                 new = cls._validate_value(value, inputs)
                 if new is not None:
@@ -33,16 +34,16 @@ class TemplateMatch(Template[str | List[str], Match]):
         return used
 
     def materialize_unchecked(self, inputs: Mapping[str, str]) -> Match:
-        if isinstance(self._content, list):
+        if isinstance(self._content, set):
             return Match(
-                [self._materialize_value(value, inputs) for value in self._content]
+                {self._materialize_value(value, inputs) for value in self._content}
             )
         else:
             return Match(self._materialize_value(self._content, inputs))
 
     @classmethod
     def from_yaml(
-        cls, name: str, data: str | List[str], inputs: Set[str], allow_extra: bool
+        cls, name: str, data: str | Set[str], inputs: Set[str], allow_extra: bool
     ) -> "TemplateMatch":
         return cls(name, data, inputs, allow_extra)
 

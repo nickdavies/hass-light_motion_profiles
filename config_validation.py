@@ -39,7 +39,7 @@ if __name__ == "__main__":
     with open(full_path) as f:
         data = yaml.safe_load(f)
 
-    vol.All(
+    data = vol.All(
         RawConfig.vol(),
         RawConfig.validate_config,
     )(data)

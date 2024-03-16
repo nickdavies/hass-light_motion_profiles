@@ -4,7 +4,7 @@ any templating in them at all. This is all fully resolved after
 templates are applied
 """
 from dataclasses import dataclass
-from typing import List, Mapping, Any
+from typing import List, Mapping, Any, Set
 
 import voluptuous as vol
 from homeassistant.helpers import config_validation as cv
@@ -14,10 +14,10 @@ from .validators import unique_list, InvalidConfigError
 
 @dataclass
 class Match:
-    value: str | List[str]
+    value: str | Set[str]
 
     @classmethod
-    def from_yaml(cls, data: str | List[str]) -> "Match":
+    def from_yaml(cls, data: str | Set[str]) -> "Match":
         return cls(value=data)
 
     @classmethod

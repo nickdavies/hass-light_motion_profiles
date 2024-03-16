@@ -17,7 +17,7 @@ class MatchSingle(ABC):
 
     @classmethod
     def from_raw(cls, m: RawMatch) -> "MatchSingle":
-        if isinstance(m.value, list):
+        if isinstance(m.value, set):
             return MatchSingleAny(m.value)
         elif m.value == "*":
             return MatchSingleWildcard()
@@ -39,8 +39,8 @@ class MatchSingleWildcard(MatchSingle):
 
 
 class MatchSingleAny(MatchSingle):
-    def __init__(self, value: List[str]):
-        self.value = set(value)
+    def __init__(self, value: Set[str]):
+        self.value = value
 
     def match(self, target_value: str) -> bool:
         return target_value in self.value
