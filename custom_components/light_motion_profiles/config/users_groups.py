@@ -33,7 +33,7 @@ class UserConfig:
     def vol(cls) -> vol.Schema:
         return vol.Schema(
             {
-                cls.FIELD_GUEST: cv.boolean,
+                vol.Required(cls.FIELD_GUEST): cv.boolean,
                 vol.Optional(cls.FIELD_EXISTS_ICON): cv.string,
                 vol.Optional(cls.FIELD_HOME_AWAY_ICONS): vol.Schema(
                     {cv.string: cv.string}

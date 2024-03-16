@@ -57,17 +57,19 @@ class LightConfig:
     def vol(cls) -> vol.Schema:
         return vol.Schema(
             {
-                cls.FIELD_LIGHTS: cv.string,
-                cls.FIELD_OCCUPANCY_SENSORS: vol.Any(cv.string, [cv.string]),
-                cls.FIELD_OCCUPANCY_TIMEOUT: cv.positive_int,
-                cls.FIELD_USER: cv.string,
-                cls.FIELD_LIGHT_PROFILE_RULES: [
+                vol.Required(cls.FIELD_LIGHTS): cv.string,
+                vol.Required(cls.FIELD_OCCUPANCY_SENSORS): vol.Any(
+                    cv.string, [cv.string]
+                ),
+                vol.Required(cls.FIELD_OCCUPANCY_TIMEOUT): cv.positive_int,
+                vol.Required(cls.FIELD_USER): cv.string,
+                vol.Required(cls.FIELD_LIGHT_PROFILE_RULES): [
                     vol.Any(
                         LightRule.vol(),
                         vol.Schema(
                             {
-                                cls.FIELD_TEMPLATE: cv.string,
-                                cls.FIELD_VALUES: {cv.string: cv.string},
+                                vol.Required(cls.FIELD_TEMPLATE): cv.string,
+                                vol.Required(cls.FIELD_VALUES): {cv.string: cv.string},
                             }
                         ),
                     )

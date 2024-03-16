@@ -77,7 +77,7 @@ class RoomSettings:
     def vol(cls) -> vol.Schema:
         return vol.Schema(
             {
-                cls.FIELD_VALID_ROOM_STATES: unique_list(cv.string),
+                vol.Required(cls.FIELD_VALID_ROOM_STATES): unique_list(cv.string),
             },
         )
 
@@ -131,7 +131,9 @@ class UserGroupSettings:
 
     @classmethod
     def vol(cls) -> vol.Schema:
-        return vol.Schema({cls.FIELD_VALID_PERSON_STATES: unique_list(cv.string)})
+        return vol.Schema(
+            {vol.Required(cls.FIELD_VALID_PERSON_STATES): unique_list(cv.string)}
+        )
 
 
 @dataclass
@@ -173,8 +175,8 @@ class AllSettings:
     def vol(cls) -> vol.Schema:
         return vol.Schema(
             {
-                cls.FIELD_ROOM_SETTINGS: RoomSettings.vol(),
-                cls.FIELD_USER_GROUP_SETTINGS: UserGroupSettings.vol(),
+                vol.Required(cls.FIELD_ROOM_SETTINGS): RoomSettings.vol(),
+                vol.Required(cls.FIELD_USER_GROUP_SETTINGS): UserGroupSettings.vol(),
                 cls.FIELD_DASHBOARD_SETTINGS: DashboardSettings.vol(),
             }
         )

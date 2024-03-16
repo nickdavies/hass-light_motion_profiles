@@ -22,7 +22,7 @@ class Match:
 
     @classmethod
     def vol(cls) -> vol.Schema:
-        return vol.Schema(vol.Any(cv.string, unique_list(cv.string)))
+        return vol.Schema(vol.Required(vol.Any(cv.string, unique_list(cv.string))))
 
 
 @dataclass
@@ -80,13 +80,14 @@ class UserState:
     def vol(cls) -> vol.Schema:
         return vol.Schema(
             {
-                cls.FIELD_USER: cv.string,
-                cls.FIELD_STATE_ANY: Match.vol(),
-                cls.FIELD_STATE_ALL: Match.vol(),
-                cls.FIELD_STATE_EXACT: Match.vol(),
-                # vol.Exclusive(
-                #     cls.FIELD_STATE_ANY, cls.FIELD_STATE_ALL, cls.FIELD_STATE_EXACT
-                # ): Match.vol(),
+                vol.Required(cls.FIELD_USER): cv.string,
+                vol.Required(
+                    vol.Any(
+                        cls.FIELD_STATE_ANY,
+                        cls.FIELD_STATE_ALL,
+                        cls.FIELD_STATE_EXACT,
+                    )
+                ): Match.vol(),
             }
         )
 
@@ -125,14 +126,14 @@ class LightRule:
     def vol(cls) -> vol.Schema:
         return vol.Schema(
             {
-                cls.FIELD_STATE_NAME: cv.string,
-                cls.FIELD_ROOM_STATE: Match.vol(),
-                cls.FIELD_OCCUPANCY: Match.vol(),
-                cls.FIELD_USER_STATE: vol.Any(
+                vol.Required(cls.FIELD_STATE_NAME): cv.string,
+                vol.Required(cls.FIELD_ROOM_STATE): Match.vol(),
+                vol.Required(cls.FIELD_OCCUPANCY): Match.vol(),
+                vol.Required(cls.FIELD_USER_STATE): vol.Any(
                     [UserState.vol()],
                     Match.vol(),
                 ),
-                cls.FIELD_LIGHT_PROFILE: cv.string,
+                vol.Required(cls.FIELD_LIGHT_PROFILE): cv.string,
             }
         )
 

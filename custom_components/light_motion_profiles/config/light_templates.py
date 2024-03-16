@@ -268,8 +268,8 @@ class TemplateLightConfigRules(TemplateList[TemplateLightRuleValue, LightRule]):
     def vol(cls) -> vol.Schema:
         return vol.Schema(
             {
-                cls.FIELD_INPUTS: [cv.string],
-                cls.FIELD_TEMPLATE: [TemplateLightRule.vol()],
+                vol.Required(cls.FIELD_INPUTS): [cv.string],
+                vol.Required(cls.FIELD_TEMPLATE): [TemplateLightRule.vol()],
             }
         )
 
@@ -285,7 +285,7 @@ class AllTemplates:
         return cls(
             light_config_rules={
                 name: TemplateLightConfigRules.from_yaml(name, template)
-                for name, template in data[cls.FIELD_LIGHT_CONFIG_RULES].items()
+                for name, template in data.get(cls.FIELD_LIGHT_CONFIG_RULES, {}).items()
             },
         )
 
@@ -303,5 +303,9 @@ class AllTemplates:
     @classmethod
     def vol(cls) -> vol.Schema:
         return vol.Schema(
-            {cls.FIELD_LIGHT_CONFIG_RULES: {cv.string: TemplateLightConfigRules.vol()}}
+            {
+                vol.Optional(cls.FIELD_LIGHT_CONFIG_RULES): {
+                    cv.string: TemplateLightConfigRules.vol()
+                }
+            }
         )
