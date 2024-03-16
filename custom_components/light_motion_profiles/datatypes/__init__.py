@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Mapping, Set, Dict
+from typing import List, Mapping, Set, Dict, Iterator
 
 from ..config import RawConfig, LightConfig as RawLightConfig
 from ..config.light_profiles import (
@@ -85,7 +85,7 @@ class LightRule:
 class LightGroup:
     name: str
     lights: InputEntity
-    users: List[str]
+    user: str
     occupancy_sensors: InputEntity | List[InputEntity]
     occupancy_timeout: DataSource
     rules: List[LightRule]
@@ -100,7 +100,7 @@ class LightGroup:
         self._settings = settings
         self.name = name
         self.lights = InputEntity(config.lights)
-        self.users = config.users if isinstance(config.users, list) else [config.users]
+        self.user = config.user
         self.occupancy_sensors = (
             [InputEntity(os) for os in config.occupancy_sensors]
             if isinstance(config.occupancy_sensors, list)
@@ -112,6 +112,12 @@ class LightGroup:
             LightRule(r, light_profiles=light_profiles, settings=self._settings)
             for r in config.light_profile_rules
         ]
+
+    def get_rule_users(self) -> Set[str]:
+        out = set()
+        for rule in self.rules:
+            out |= rule.rule_match.get_users()
+        return out
 
     @property
     def killswitch_entity(self) -> Entity:
@@ -230,6 +236,20 @@ class Group:
             name=f"group_presence_{self.name}",
         )
 
+    @classmethod
+    def resolve_group_states(
+        cls, input_states: Iterator[str | Set[str]], absent_state: str
+    ) -> Set[str]:
+        states = set()
+        for state in input_states:
+            if isinstance(state, set):
+                states.update(state)
+            else:
+                states.add(state)
+        if len(states) != 1:
+            states.discard(absent_state)
+        return states
+
 
 @dataclass
 class UsersGroups:
@@ -251,6 +271,23 @@ class UsersGroups:
         }
         # Don't allow an invalid version of this object to ever exist
         self._validate(settings)
+
+    def get(self, name: str) -> User | Group:
+        if name in self.users:
+            return self.users[name]
+        elif name in self.groups:
+            return self.groups[name]
+        else:
+            raise ValueError(f"Requested unknown user/group {name}")
+
+    def members(self, name: str) -> Mapping[str, User]:
+        if name in self.users:
+            return {name: self.users[name]}
+        else:
+            out: Dict[str, User] = {}
+            for member in self.groups[name].members:
+                out.update(self.members(member))
+            return out
 
     def presence_entity(self, target: str) -> Entity:
         if target in self.users:

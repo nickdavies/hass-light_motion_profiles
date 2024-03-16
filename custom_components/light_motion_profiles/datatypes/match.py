@@ -173,3 +173,10 @@ class RuleMatch:
             return False
 
         return any(s.match(user_state) for s in self.user_state)
+
+    def get_users(self) -> Set[str]:
+        out = set()
+        for user_state in self.user_state:
+            if isinstance(user_state, MatchUserSingle):
+                out.add(user_state.user)
+        return out

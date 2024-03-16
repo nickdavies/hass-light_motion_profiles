@@ -120,15 +120,21 @@ templates:
 
         # If the lights are auto and noone is there but there was someone recently
         # wait.
-        - state_name: empty_timeout
+        - state_name: occupied_timeout
           room_state: auto
-          occupancy: empty_timeout
+          occupancy: occupied_timeout
           user_state: "*"
           light_profile: noop
 
         # If the lights are in manual mode don't touch them!
         - state_name: manual
           room_state: manual
+          occupancy: "*"
+          user_state: "*"
+          light_profile: noop
+
+        - state_name: unknown_occ
+          room_state: "*"
           occupancy: "*"
           user_state: "*"
           light_profile: noop
@@ -239,7 +245,7 @@ light_configs:
     lights: light.main_bathroom_lights_toilet
     occupancy_sensors: binary_sensor.main_bathroom_sensor_toilet_occupancy
     occupancy_timeout: 180
-    users: primary
+    user: primary
     light_profile_rules:
       - template: default_rules
         values:
@@ -264,8 +270,7 @@ light_configs:
       - binary_sensor.rooms_hall_sensor_main_bedroom_occupancy
       - binary_sensor.rooms_hall_sensor_office_entry_occupancy
     occupancy_timeout: 180
-    users:
-      - everyone
+    user: everyone
     light_profile_rules:
       - template: default_rules
         values:

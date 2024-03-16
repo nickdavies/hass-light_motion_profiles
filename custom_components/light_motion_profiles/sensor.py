@@ -265,15 +265,9 @@ class GroupPresenceSensor(CalculatedSensor[str], SensorEntity):
             else:
                 member_states[member] = self.deserialize(member_state.state)
 
-        states = set()
-        for member, state in member_states.items():
-            if isinstance(state, set):
-                states.update(state)
-            else:
-                states.add(state)
-        if len(states) != 1:
-            states.discard(self._state_absent)
-
+        states = Group.resolve_group_states(
+            iter(member_states.values()), self._state_absent
+        )
         return self.serialize(states)
 
 
@@ -359,7 +353,8 @@ class LightRuleEntity(CalculatedSensor[str | None], SensorEntity):
 
         self._rules = config.rules
         self._user_group_entities = {
-            member: users_groups.presence_entity(member).full for member in config.users
+            member: users_groups.presence_entity(member).full
+            for member in config.get_rule_users()
         }
         self._occupancy_entity = config.room_occupancy_entity.full
         self._dependent_entities = list(self._user_group_entities.values()) + [

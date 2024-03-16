@@ -16,7 +16,7 @@ class LightConfig:
     FIELD_LIGHTS = "lights"
     FIELD_OCCUPANCY_SENSORS = "occupancy_sensors"
     FIELD_OCCUPANCY_TIMEOUT = "occupancy_timeout"
-    FIELD_USERS = "users"
+    FIELD_USER = "user"
     FIELD_LIGHT_PROFILE_RULES = "light_profile_rules"
 
     FIELD_TEMPLATE = "template"
@@ -25,7 +25,7 @@ class LightConfig:
     lights: str
     occupancy_sensors: str | List[str]
     occupancy_timeout: str | int
-    users: str | List[str]
+    user: str
     light_profile_rules: List[LightRule]
 
     @classmethod
@@ -49,7 +49,7 @@ class LightConfig:
             lights=data[cls.FIELD_LIGHTS],
             occupancy_sensors=data[cls.FIELD_OCCUPANCY_SENSORS],
             occupancy_timeout=data[cls.FIELD_OCCUPANCY_TIMEOUT],
-            users=data[cls.FIELD_USERS],
+            user=data[cls.FIELD_USER],
             light_profile_rules=light_profile_rules,
         )
 
@@ -60,7 +60,7 @@ class LightConfig:
                 cls.FIELD_LIGHTS: cv.string,
                 cls.FIELD_OCCUPANCY_SENSORS: vol.Any(cv.string, [cv.string]),
                 cls.FIELD_OCCUPANCY_TIMEOUT: cv.positive_int,
-                cls.FIELD_USERS: vol.Any(cv.string, [cv.string]),
+                cls.FIELD_USER: cv.string,
                 cls.FIELD_LIGHT_PROFILE_RULES: [
                     vol.Any(
                         LightRule.vol(),
