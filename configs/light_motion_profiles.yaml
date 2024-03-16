@@ -1,11 +1,16 @@
-debug_dashboard:
 
-user_group_settings:
-  valid_person_states:
-    - awake
-    - wakeup
-    - winddown
-    - asleep
+settings:
+  debug_dashboard:
+  room:
+    valid_room_states:
+      - auto
+      - manual
+      # - scene
+  user_group:
+    valid_person_states:
+      - awake
+      - winddown
+      - asleep
 
 users:
   nick:
@@ -50,23 +55,25 @@ users:
 
 groups:
   primary:
-    nick:
-    partner:
+    - nick
+    - partner
 
   guests:
-    guest_1:
-    guest_2:
+    - guest_1
+    - guest_2
 
   everyone:
-    primary:
-    guests:
+    - nick
+    - partner
+    - guest_1
+    - guest_2
 
 
 light_profiles:
-  enable:
+  enabled:
     enabled: true
     icon: mdi:lightbulb-on
-  disable:
+  disabled:
     enabled: false
     icon: mdi:lightbulb-off
   full:
@@ -81,72 +88,197 @@ light_profiles:
     enabled: true
     brightness_pct: 25
     icon: mdi:lamp
-  night_light:
+  nightlight:
     enabled: true
     brightness_pct: 5
     icon: mdi:weather-night
+  noop: {}
 
 
-light_rule_templates:
-   # For any area thats generally owned by a single group (because this is an exhaustive match).
-   # it prefers the "most awake" state in the options. So this wouldn't be suitable for anything
-   # that is sensitive
-   prefer_awake:
-     - profile: full
-       match_type: all
-       states:
-         - awake
-     - profile: dim
-       match_type: all
-       states:
-         - winddown
-     - profile: disable
-       match_type: all
-       states:
-         - asleep
+templates:
+  light_config_rules:
+    # This is usually a sane default to have for every light group.
+    # It provides being off when people are away, not touching the lights
+    # when they are in cooldown or manual mode
+    default_rules:
+      inputs:
+        - users
+      template:
+        - state_name: absent
+          room_state: auto
+          occupancy: "*"
+          user_state:
+            - user: "{users}"
+              state_exact: absent
+          light_profile: disabled
+        # If the lights are auto and noone is there then turn off
+        - state_name: empty
+          room_state: auto
+          occupancy: empty
+          user_state: "*"
+          light_profile: disabled
 
-   # For any area thats generally owned by a single group (because this is an exhaustive match).
-   # it prefers the "most asleep" state in the options. So this wouldn't be suitable for anything
-   # that is pretty private and wont effect others
-   prefer_asleep:
-     - profile: disable
-       match_type: all
-       states:
-         - asleep
+        # If the lights are auto and noone is there but there was someone recently
+        # wait.
+        - state_name: occupied_timeout
+          room_state: auto
+          occupancy: occupied_timeout
+          user_state: "*"
+          light_profile: noop
 
-     - profile: dim
-       match_type: all
-       states:
-         - winddown
+        # If the lights are in manual mode don't touch them!
+        - state_name: manual
+          room_state: manual
+          occupancy: "*"
+          user_state: "*"
+          light_profile: noop
 
-     - profile: full
-       match_type: all
-       states:
-         - awake
+        - state_name: unknown_occ
+          room_state: "*"
+          occupancy: "*"
+          user_state: "*"
+          light_profile: noop
+
+    # When the user is asleep then we want the nightlight for this room when it's occupied
+    nightlight_on_demand:
+      inputs:
+        - users
+      template:
+        - state_name: nightlight
+          room_state: auto
+          occupancy: occupied
+          user_state:
+            - user: "{users}"
+              state_any: asleep
+          light_profile: nightlight
+
+    prefer_awake:
+      inputs:
+        - users
+      template:
+        - state_name: someone_awake
+          room_state: auto
+          occupancy: occupied
+          user_state:
+            - user: "{users}"
+              state_any: awake
+          light_profile: full
+        - state_name: someone_winddown
+          room_state: auto
+          occupancy: occupied
+          user_state:
+            - user: "{users}"
+              state_any: winddown
+          light_profile: dim
+        - state_name: someone_asleep
+          room_state: auto
+          occupancy: occupied
+          user_state:
+            - user: "{users}"
+              state_any: asleep
+          light_profile: disabled
+
+    prefer_asleep:
+      inputs:
+        - users
+      template:
+        - state_name: someone_asleep
+          room_state: auto
+          occupancy: occupied
+          user_state:
+            - user: "{users}"
+              state_any: asleep
+          light_profile: disabled
+        - state_name: someone_winddown
+          room_state: auto
+          occupancy: occupied
+          user_state:
+            - user: "{users}"
+              state_any: winddown
+          light_profile: dim
+        - state_name: someone_awake
+          room_state: auto
+          occupancy: occupied
+          user_state:
+            - user: "{users}"
+              state_any: awake
+          light_profile: full
+
+    sensitive:
+      inputs:
+        - all_users
+        - sensitive_users
+        - safe_profile
+      template:
+        - state_name: everyone_asleep
+          room_state: auto
+          occupancy: occupied
+          user_state:
+            - user: "{all_users}"
+              state_any: asleep
+          light_profile: disabled
+        - state_name: someone_asleep
+          room_state: auto
+          occupancy: occupied
+          user_state:
+            - user: "{sensitive_users}"
+              state_any: asleep
+          light_profile: "{safe_profile}"
+        - state_name: someone_winddown
+          room_state: auto
+          occupancy: occupied
+          user_state:
+            - user: "{sensitive_users}"
+              state_any: winddown
+          light_profile: dim
+        - state_name: everyone_awake
+          room_state: auto
+          occupancy: occupied
+          user_state:
+            - user: "{sensitive_users}"
+              state_exact: awake
+          light_profile: full
 
 
-light_templates:
-  private:
-    no_motion_wait: 180
-    default_profile: disable
-    no_motion_profile: disable
-    light_profile_rule_sets:
-        - user_or_group: everyone
-          rule_template: prefer_awake
-  communal:
-    no_motion_wait: 180
-    default_profile: disable
-    no_motion_profile: disable
-    light_profile_rule_sets:
-        - user_or_group: everyone
-          rule_template: prefer_awake
-  sensitive:
-    no_motion_wait: 180
-    default_profile: disable
-    no_motion_profile: disable
-    light_profile_rule_sets:
-        - user_or_group: everyone
-          rule_template: prefer_asleep
+light_configs:
+  main_bathroom_toilet:
+    lights: light.main_bathroom_lights_toilet
+    occupancy_sensors: binary_sensor.main_bathroom_sensor_toilet_occupancy
+    occupancy_timeout: 180
+    user: primary
+    light_profile_rules:
+      - template: default_rules
+        values:
+          users: primary
+      - state_name: someone_asleep
+        room_state: auto
+        occupancy: occupied
+        user_state:
+          - user: primary
+            state_any: asleep
+        light_profile: disabled
+      - template: nightlight_on_demand
+        values:
+          users: primary
+      - template: prefer_asleep
+        values:
+          users: primary
+
+  rooms_hall:
+    lights: light.rooms_hall_lights_all
+    occupancy_sensors:
+      - binary_sensor.rooms_hall_sensor_main_bedroom_occupancy
+      - binary_sensor.rooms_hall_sensor_office_entry_occupancy
+    occupancy_timeout: 180
+    user: everyone
+    light_profile_rules:
+      - template: default_rules
+        values:
+          users: everyone
+      - template: sensitive
+        values:
+          all_users: everyone
+          sensitive_users: everyone
+          safe_profile: dim
 
 
-light_bindings:

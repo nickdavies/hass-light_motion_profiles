@@ -1,73 +1,60 @@
-from .entity_names import (
-    person_exists_entity,
-    killswitch_entity,
-)
-from .schema_users_groups import (
-    FIELD_USERS,
-    FIELD_GUEST,
-    FIELD_EXISTS_ICON,
-)
-from .schema_motion_profiles import (
-    MOTION_KILLSWITCH_GLOBAL,
-    FIELD_LIGHT_BINDINGS,
-    FIELD_LIGHT_PROFILE_SETTINGS,
-    FIELD_ICON_KILLSWITCH,
-    FIELD_ICON_GLOBAL_KILLSWITCH,
-)
+from typing import Mapping, Any
 
 from homeassistant.const import STATE_ON
 
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.switch import SwitchEntity, DOMAIN as SWITCH_DOMAIN
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 
+from .datatypes import Config, User, Entity
+
+
 async def async_setup_platform(
     hass: HomeAssistant,
-    whole_config: ConfigEntry,
+    raw_config: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info,
+    config: Config,
 ) -> None:
     user_switches = []
-    for user, user_config in discovery_info[FIELD_USERS].items():
-        if user_config[FIELD_GUEST]:
-            user_switches.append(
-                GuestExistsSwitch(user, user_config[FIELD_EXISTS_ICON])
-            )
+    for user in config.users_groups.users.values():
+        if user.guest:
+            user_switches.append(GuestExistsSwitch(user))
 
     async_add_entities(user_switches)
 
+    ks_settings = config.settings.killswitch
+
     killswitches = []
-
-    settings = discovery_info[FIELD_LIGHT_PROFILE_SETTINGS]
-
     killswitches.append(
-        KillSwitch(
-            MOTION_KILLSWITCH_GLOBAL, icon=settings[FIELD_ICON_GLOBAL_KILLSWITCH]
-        )
+        KillSwitch(config.global_killswitch_entity, icon=ks_settings.global_icon)
     )
 
-    killswitch_icon = settings[FIELD_ICON_KILLSWITCH]
-    for binding_name, _ in discovery_info[FIELD_LIGHT_BINDINGS].items():
-        killswitches.append(KillSwitch(binding_name, icon=killswitch_icon))
+    killswitch_icon = ks_settings.default_icon
+    for light_config in config.lights.values():
+        killswitches.append(
+            KillSwitch(light_config.killswitch_entity, icon=killswitch_icon)
+        )
 
     async_add_entities(killswitches)
 
 
 class _BasicSwitch(SwitchEntity):
-    def turn_on(self, **kwargs):
+    def turn_on(self, **kwargs: Mapping[Any, Any]) -> None:
         self._attr_is_on = True
 
-    def turn_off(self, **kwargs):
+    def turn_off(self, **kwargs: Mapping[Any, Any]) -> None:
         self._attr_is_on = False
 
 
 class GuestExistsSwitch(_BasicSwitch, RestoreEntity):
-    def __init__(self, name, icon):
-        self._attr_name = person_exists_entity(name, without_domain=True)
-        self._attr_icon = icon
+    def __init__(self, user: User) -> None:
+        entity = user.exists_entity
+        assert entity.domain.value == SWITCH_DOMAIN
+        self._attr_name = entity.name
+        self._attr_icon = user.exists_icon
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
@@ -78,8 +65,9 @@ class GuestExistsSwitch(_BasicSwitch, RestoreEntity):
 
 
 class KillSwitch(_BasicSwitch, RestoreEntity):
-    def __init__(self, name, icon):
-        self._attr_name = killswitch_entity(name, without_domain=True)
+    def __init__(self, entity: Entity, icon: str | None) -> None:
+        assert entity.domain.value == SWITCH_DOMAIN
+        self._attr_name = entity.name
         self._attr_icon = icon
 
     async def async_added_to_hass(self) -> None:

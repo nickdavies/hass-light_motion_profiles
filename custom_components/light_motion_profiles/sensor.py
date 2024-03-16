@@ -1,59 +1,11 @@
 import logging
 import asyncio
-from datetime import timedelta
-
-from . import GROUP_SEPARATOR
-from .schema_users_groups import (
-    PERSON_STATE_ABSENT,
-    HOME_AWAY_STATE_AUTO,
-    HOME_AWAY_STATE_NOT_HOME,
-    HOME_AWAY_STATE_UNKNOWN,
-    FIELD_GROUPS,
-    FIELD_GUEST,
-    FIELD_HOME_AWAY_ICONS,
-    FIELD_STATE_ICONS,
-    FIELD_STATE_IF_UNKNOWN,
-    FIELD_TRACKING_ENTITY,
-    FIELD_USER_GROUP_SETTINGS,
-    FIELD_USERS,
-)
-from .schema_motion_profiles import (
-    FIELD_BRIGHTNESS_PCT,
-    FIELD_DEFAULT_PROFILE,
-    FIELD_ENABLED,
-    FIELD_LIGHT_ICON,
-    FIELD_LIGHT_PROFILE_RULE_SETS,
-    FIELD_LIGHT_PROFILES,
-    FIELD_LIGHTS,
-    FIELD_MATCH_TYPE,
-    FIELD_MATERIALIZED_BINDINGS,
-    FIELD_MOTION_SENSOR_ENTITY,
-    FIELD_NO_MOTION_PROFILE,
-    FIELD_NO_MOTION_WAIT,
-    FIELD_PROFILE,
-    FIELD_RULES,
-    FIELD_STATES,
-    FIELD_USER_OR_GROUP_ENTITY,
-    MATCH_TYPE_ALL,
-    MATCH_TYPE_ANY,
-    MATCH_TYPE_EXACT,
-    MOTION_KILLSWITCH_GLOBAL,
-)
-from .entity_names import (
-    group_presence_entity,
-    killswitch_entity,
-    light_automation_entity,
-    light_binding_profile_entity,
-    person_exists_entity,
-    person_home_away_entity,
-    person_override_home_away_entity,
-    person_presence_entity,
-    person_state_entity,
-    light_movement_entity,
-)
+from datetime import timedelta, datetime
+from typing import Mapping, List, Set, Any, TypeVar, Generic, Dict, Callable
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS_PCT,
+    ATTR_TRANSITION,
     DOMAIN as LIGHT_DOMAIN,
 )
 from homeassistant.util import dt as dt_util
@@ -69,9 +21,22 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, DOMAIN as SENSOR_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from . import GROUP_SEPARATOR
+from .datatypes import (
+    Config,
+    User,
+    Group,
+    UsersGroups,
+    UserGroupSettings,
+    LightGroup,
+    RoomSettings,
+    Entity,
+)
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,106 +45,97 @@ async def async_setup_platform(
     hass: HomeAssistant,
     whole_config: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info,
+    config: Config,
 ) -> None:
-    state_if_unknown = discovery_info[FIELD_USER_GROUP_SETTINGS][FIELD_STATE_IF_UNKNOWN]
-
-    user_sensors = []
-    for user, user_config in discovery_info[FIELD_USERS].items():
+    user_sensors: List[SensorEntity] = []
+    for user in config.users_groups.users.values():
         user_sensors.append(
             UserHomeAwaySensor(
-                name=user,
-                icons=user_config[FIELD_HOME_AWAY_ICONS],
-                tracking_entity=user_config[FIELD_TRACKING_ENTITY],
+                user,
+                config.settings.users_groups,
             )
         )
-        user_sensors.append(
-            UserPresenceSensor(
-                name=user,
-                state_if_unknown=state_if_unknown,
-                icons=user_config[FIELD_STATE_ICONS],
-                guest=user_config[FIELD_GUEST],
-            )
-        )
+        user_sensors.append(UserPresenceSensor(user, config.settings.users_groups))
 
     async_add_entities(user_sensors)
 
-    users = set(discovery_info[FIELD_USERS])
     group_sensors = []
-    for group_name, members in discovery_info[FIELD_GROUPS].items():
-        members = {name: name in users for name in members}
+    for group in config.users_groups.groups.values():
         group_sensors.append(
             GroupPresenceSensor(
-                group_name,
-                members,
+                group, config.users_groups, config.settings.users_groups
             )
         )
     async_add_entities(group_sensors)
 
-    profile_icons = {}
-    for name, profile in discovery_info[FIELD_LIGHT_PROFILES].items():
-        if FIELD_LIGHT_ICON in profile:
-            profile_icons[name] = profile[FIELD_LIGHT_ICON]
+    # profile_icons = {}
+    # for name, profile in discovery_info[FIELD_LIGHT_PROFILES].items():
+    #     if FIELD_LIGHT_ICON in profile:
+    #         profile_icons[name] = profile[FIELD_LIGHT_ICON]
 
-    light_sensors = []
-    materialized_bindings = discovery_info[FIELD_MATERIALIZED_BINDINGS]
-    for binding_name, materialized_binding in materialized_bindings.items():
+    # _LOGGER.warning(f"profile_icons={profile_icons}")
+
+    light_sensors: List[SensorEntity] = []
+    for light_config in config.lights.values():
         light_sensors.append(
-            LightProfileEntity(
-                binding_name,
-                materialized_binding,
-                profile_icons,
+            RoomOccupancyEntity(
+                light_config,
+                config.settings.room,
             )
         )
         light_sensors.append(
-            LightMovementEntity(
-                binding_name,
-                materialized_binding,
+            LightRuleEntity(
+                light_config,
+                config.users_groups,
             )
         )
         light_sensors.append(
             LightAutomationEntity(
-                binding_name,
-                materialized_binding,
-                discovery_info[FIELD_LIGHT_PROFILES],
-                profile_icons,
+                light_config,
+                config.global_killswitch_entity,
             )
         )
 
     async_add_entities(light_sensors)
 
 
-class CalculatedSensor:
+T = TypeVar("T")
+
+
+class CalculatedSensor(Generic[T]):
     PRIMARY_ATTR = "_attr_native_value"
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         setattr(self, self.PRIMARY_ATTR, None)
-        self._icons = None
+        self._icons: Mapping[T, str] | None = None
 
-    def _apply_state(self, new_state):
+    def _apply_state(self, new_state: T) -> bool:
         setattr(self, self.PRIMARY_ATTR, new_state)
         return True
 
-    def _apply_icon(self, new_state):
+    def _apply_icon(self, new_state: T) -> None:
         if self._icons is not None:
             self._attr_icon = self._icons.get(new_state)
 
-    def _apply_and_save_state(self, new_state):
+    def _apply_and_save_state(self, new_state: T) -> bool:
         changed = self._apply_state(new_state)
         if changed:
             self._apply_icon(new_state)
             self.async_write_ha_state()
         return changed
 
-    def _force_update(self, event):
+    def _force_update(self, event: Any) -> None:
         new_state = self.calculate_current_state()
         _LOGGER.info(f"new_state for {self._attr_name}={new_state}")
-        return self._apply_and_save_state(new_state)
+        self._apply_and_save_state(new_state)
 
-    async def async_added_to_hass(self):
+    def calculate_current_state(self) -> T:
+        raise NotImplementedError("Abstract")
+
+    async def async_added_to_hass(self) -> None:
         @callback
-        def dependent_entity_change(event):
+        def dependent_entity_change(event: Any) -> None:
             self._force_update(event)
 
         _LOGGER.debug(
@@ -193,27 +149,34 @@ class CalculatedSensor:
         self._force_update(None)
 
 
-class UserHomeAwaySensor(CalculatedSensor, SensorEntity):
+class UserHomeAwaySensor(CalculatedSensor[str], SensorEntity):
     def __init__(
         self,
-        name,
-        icons,
-        tracking_entity=None,
-    ):
+        user: User,
+        settings: UserGroupSettings,
+    ) -> None:
         super().__init__()
 
-        self._attr_name = person_home_away_entity(name, without_domain=True)
-        self._icons = icons
-        self._tracking_entity = tracking_entity
-        self._override_entity = person_override_home_away_entity(name)
+        entity = user.home_away_entity
+        assert entity.domain.value == SENSOR_DOMAIN
+
+        self._attr_name = entity.name
+        self._icons = user.home_away_icons
+        self._tracking_entity = (
+            user.tracking_entity.entity if user.tracking_entity else None
+        )
+        self._override_entity = user.home_away_override_entity.full
 
         self._dependent_entities = [self._override_entity]
         if self._tracking_entity:
             self._dependent_entities.append(self._tracking_entity)
 
-    def calculate_current_state(self):
+        self._state_auto = settings.home_away_states.auto
+        self._state_unknown = settings.home_away_states.unknown
+
+    def calculate_current_state(self) -> str:
         override = self.hass.states.get(self._override_entity)
-        if override is not None and override.state != HOME_AWAY_STATE_AUTO:
+        if override is not None and override.state != self._state_auto:
             return override.state
 
         if self._tracking_entity:
@@ -221,177 +184,115 @@ class UserHomeAwaySensor(CalculatedSensor, SensorEntity):
             if auto is not None:
                 return auto.state
 
-        return HOME_AWAY_STATE_UNKNOWN
+        return self._state_unknown
 
 
-class UserPresenceSensor(CalculatedSensor, SensorEntity):
-    def __init__(
-        self,
-        name,
-        state_if_unknown,
-        icons,
-        guest=False,
-    ):
+class UserPresenceSensor(CalculatedSensor[str], SensorEntity):
+    def __init__(self, user: User, settings: UserGroupSettings) -> None:
         super().__init__()
-        self._attr_name = person_presence_entity(name, without_domain=True)
-        self._icons = icons
+        entity = user.presence_entity
+        assert entity.domain.value == SENSOR_DOMAIN
 
-        self._home_away_entity = person_home_away_entity(name)
-        self._state_entity = person_state_entity(name)
-        self._state_if_unknown = state_if_unknown
+        self._attr_name = entity.name
+        self._icons = user.state_icons
+
+        self._home_away_entity = user.home_away_entity.full
+        self._state_entity = user.state_entity.full
+        self._state_if_unknown = settings.state_if_unknown
         self._exists_entity = None
 
         self._dependent_entities = [self._home_away_entity, self._state_entity]
-        if guest:
-            self._exists_entity = person_exists_entity(name)
+        if user.guest:
+            self._exists_entity = user.exists_entity.full
             self._dependent_entities.append(self._exists_entity)
 
-    def calculate_current_state(self):
+        self._state_absent = settings.absent_state
+        self._state_unknown = settings.home_away_states.unknown
+        self._state_not_home = settings.home_away_states.not_home
+
+    def calculate_current_state(self) -> str:
         if self._exists_entity:
             exists = self.hass.states.get(self._exists_entity)
             if exists is None or exists.state == "off":
-                return PERSON_STATE_ABSENT
+                return self._state_absent
 
         home_away = self.hass.states.get(self._home_away_entity)
         if home_away is not None:
-            if home_away.state == HOME_AWAY_STATE_NOT_HOME:
-                return PERSON_STATE_ABSENT
-            if home_away.state.lower() == HOME_AWAY_STATE_UNKNOWN:
+            if home_away.state == self._state_not_home:
+                return self._state_absent
+            if home_away.state.lower() == self._state_unknown:
                 return self._state_if_unknown
 
         user_state = self.hass.states.get(self._state_entity)
         if user_state is not None:
             return user_state.state
         else:
-            return None
+            return self._state_if_unknown
 
 
-class GroupPresenceSensor(CalculatedSensor, SensorEntity):
+class GroupPresenceSensor(CalculatedSensor[str], SensorEntity):
     def __init__(
-        self,
-        group_name,
-        members,
-    ):
+        self, group: Group, users_groups: UsersGroups, settings: UserGroupSettings
+    ) -> None:
         super().__init__()
-        self._attr_name = group_presence_entity(group_name, without_domain=True)
+        entity = group.presence_entity
+        assert entity.domain.value == SENSOR_DOMAIN
+        self._attr_name = entity.name
 
-        self._members = members
         self._member_entities = {}
-        for member, is_user in members.items():
-            if is_user:
-                self._member_entities[member] = person_presence_entity(member)
-            else:
-                self._member_entities[member] = group_presence_entity(member)
+        for member in group.members:
+            self._member_entities[member] = users_groups.presence_entity(member).full
 
         self._dependent_entities = list(self._member_entities.values())
+        self._state_absent = settings.absent_state
+        self._state_if_unknown = settings.state_if_unknown
 
     @classmethod
-    def deserialize(cls, value):
+    def deserialize(cls, value: str) -> Set[str]:
         return set(value.split(GROUP_SEPARATOR))
 
     @classmethod
-    def serialize(cls, states):
+    def serialize(cls, states: Set[str]) -> str:
         return GROUP_SEPARATOR.join(sorted(set(states)))
 
-    def calculate_current_state(self):
-        member_states = {}
+    def calculate_current_state(self) -> str:
+        member_states: Dict[str, str | Set[str]] = {}
         for member, member_entity in self._member_entities.items():
             member_state = self.hass.states.get(member_entity)
             if member_state is None:
-                member_states[member] = None
+                member_states[member] = self._state_if_unknown
             else:
                 member_states[member] = self.deserialize(member_state.state)
 
-        states = set()
-        for member, state in member_states.items():
-            if isinstance(state, set):
-                states.update(state)
-            else:
-                states.add(state)
-        if len(states) != 1:
-            states.discard(PERSON_STATE_ABSENT)
-
+        states = Group.resolve_group_states(
+            iter(member_states.values()), self._state_absent
+        )
         return self.serialize(states)
 
 
-class LightProfileEntity(CalculatedSensor, SensorEntity):
-    def __init__(
-        self,
-        binding_name,
-        materialized_binding,
-        profile_icons,
-    ):
-        super().__init__()
-        self._attr_name = light_binding_profile_entity(
-            binding_name, without_domain=True
-        )
-
-        self._icons = profile_icons
-
-        self._rule_sets = materialized_binding[FIELD_LIGHT_PROFILE_RULE_SETS]
-        self._dependent_entities = []
-        for rule in self._rule_sets:
-            self._dependent_entities.append(rule[FIELD_USER_OR_GROUP_ENTITY])
-
-        self._default_profile = materialized_binding[FIELD_DEFAULT_PROFILE]
-
-    def calculate_current_state(self):
-        # For this entity we don't care if motion has occured or not. We are just
-        # resolving the rules down to which profile would be currently used and
-        # another bit of automation controls if that profile or the no_motion_profile
-        # should be active
-        #
-        # Because we don't care about motion here we also don't look at the killswitches
-        # which only effect if motion is/isn't honored
-
-        for ruleset in self._rule_sets:
-            user_or_group_state = self.hass.states.get(
-                ruleset[FIELD_USER_OR_GROUP_ENTITY]
-            )
-            if user_or_group_state is None:
-                continue
-            states = GroupPresenceSensor.deserialize(user_or_group_state.state)
-
-            for rule in ruleset[FIELD_RULES]:
-                match_type = rule[FIELD_MATCH_TYPE]
-                rule_states = set(rule[FIELD_STATES])
-
-                if match_type == MATCH_TYPE_EXACT and states == rule_states:
-                    return rule[FIELD_PROFILE]
-                elif match_type == MATCH_TYPE_ANY:
-                    if any(rule_state in states for rule_state in rule_states):
-                        return rule[FIELD_PROFILE]
-                elif match_type == MATCH_TYPE_ALL:
-                    if all(rule_state in states for rule_state in rule_states):
-                        return rule[FIELD_PROFILE]
-
-        return self._default_profile
-
-
-class LightMovementEntity(CalculatedSensor, SensorEntity):
-
-    STATE_PRESENT = "present"
-    STATE_COOLDOWN = "cooldown"
-    STATE_NO_MOTION = "no_motion"
-
-    def __init__(self, binding_name, materialized_binding):
+class RoomOccupancyEntity(CalculatedSensor[str], SensorEntity):
+    def __init__(self, config: LightGroup, settings: RoomSettings) -> None:
         super().__init__()
 
-        self._attr_name = light_movement_entity(binding_name, without_domain=True)
+        entity = config.room_occupancy_entity
+        assert entity.domain.value == SENSOR_DOMAIN
 
-        self._no_motion_cb_cancel = None
+        self._attr_name = entity.name
+        self._no_motion_cb_cancel: Callable[[], None] | None = None
 
-        self._motion_entity = materialized_binding[FIELD_MOTION_SENSOR_ENTITY]
-        self._no_motion_timeout = timedelta(
-            seconds=materialized_binding[FIELD_NO_MOTION_WAIT]
-        )
+        self._motion_entity = config.motion_sensor_entity.entity
+        self._no_motion_timeout = timedelta(seconds=config.occupancy_timeout.value)
 
         self._dependent_entities = [
             self._motion_entity,
         ]
 
-    async def async_added_to_hass(self):
-        def on_remove():
+        self._state_occupied = settings.occupancy_states.occupied
+        self._state_occupied_timeout = settings.occupancy_states.occupied_timeout
+        self._state_empty = settings.occupancy_states.empty
+
+    async def async_added_to_hass(self) -> None:
+        def on_remove() -> None:
             if self._no_motion_cb_cancel is not None:
                 self._no_motion_cb_cancel()
                 self._no_motion_cb_cancel = None
@@ -399,11 +300,11 @@ class LightMovementEntity(CalculatedSensor, SensorEntity):
         self.async_on_remove(on_remove)
         return await super().async_added_to_hass()
 
-    def _no_motion_callback(self, *args, **kwargs):
+    def _no_motion_callback(self, dt: datetime) -> None:
         _LOGGER.warning(f"No motion callback {self._attr_name}")
-        self._apply_and_save_state(self.STATE_NO_MOTION)
+        self._apply_and_save_state(self._state_empty)
 
-    def _force_update(self, event):
+    def _force_update(self, event: Any) -> None:
         motion_state = self.hass.states.get(self._motion_entity)
         if motion_state is None:
             return
@@ -415,7 +316,7 @@ class LightMovementEntity(CalculatedSensor, SensorEntity):
             if self._no_motion_cb_cancel is not None:
                 self._no_motion_cb_cancel()
                 self._no_motion_cb_cancel = None
-            new_state = self.STATE_PRESENT
+            new_state = self._state_occupied
         elif motion_state == STATE_OFF:
             # If we we don't see motion but already have a callback we do nothing
             if self._no_motion_cb_cancel:
@@ -427,91 +328,119 @@ class LightMovementEntity(CalculatedSensor, SensorEntity):
                 self._no_motion_callback,
                 dt_util.utcnow() + self._no_motion_timeout,
             )
-            new_state = self.STATE_COOLDOWN
+            new_state = self._state_occupied_timeout
         else:
             _LOGGER.warning(f"Unknown state for motion entity {motion_state}")
             return
 
         _LOGGER.info(f"new_state for {self._attr_name}={new_state}")
-        return self._apply_and_save_state(new_state)
+        self._apply_and_save_state(new_state)
 
 
-class LightAutomationEntity(CalculatedSensor, SensorEntity):
-    def __init__(
-        self,
-        binding_name,
-        materialized_binding,
-        light_profiles,
-        profile_icons,
-    ):
+class LightRuleEntity(CalculatedSensor[str | None], SensorEntity):
+    def __init__(self, config: LightGroup, users_groups: UsersGroups) -> None:
         super().__init__()
-        self._attr_name = light_automation_entity(binding_name, without_domain=True)
+        entity = config.light_rule_entity
+        assert entity.domain.value == SENSOR_DOMAIN
+        self._attr_name = entity.name
 
-        self._rule_sets = materialized_binding[FIELD_LIGHT_PROFILE_RULE_SETS]
-        self._icons = profile_icons
+        self._icons = {
+            r.state_name: r.state.icon.value
+            for r in config.rules
+            if r.state.icon is not None
+        }
 
-        self._no_motion_profile = materialized_binding[FIELD_NO_MOTION_PROFILE]
+        self._rules = config.rules
+        self._user_group_entities = {
+            member: users_groups.presence_entity(member).full
+            for member in config.get_rule_users()
+        }
+        self._occupancy_entity = config.room_occupancy_entity.full
+        self._dependent_entities = list(self._user_group_entities.values()) + [
+            self._occupancy_entity
+        ]
 
-        self._global_killswitch_entity = killswitch_entity(MOTION_KILLSWITCH_GLOBAL)
-        self._killswitch_entity = killswitch_entity(binding_name)
-        self._light_profile_entity = light_binding_profile_entity(binding_name)
-        self._movement_entity = light_movement_entity(binding_name)
+    def calculate_current_state(self) -> str | None:
+        # TODO make this auto when it's a thing
+        room_state = "auto"
+        occupancy = self.hass.states.get(self._occupancy_entity)
+        if occupancy is None:
+            return None
+        else:
+            occupancy = occupancy.state
+        user_states = {
+            member: self.hass.states.get(e)
+            for member, e in self._user_group_entities.items()
+        }
+        if any(v is None for v in user_states.values()):
+            pass
+        else:
+            user_states = {
+                m: GroupPresenceSensor.deserialize(e.state)
+                for m, e in user_states.items()
+            }
+
+        for rule in self._rules:
+            if rule.rule_match.match(room_state, occupancy, user_states):
+                return rule.state_name
+
+        _LOGGER.warning(
+            f"No rules matched for {self._attr_name}: "
+            f"occupancy={occupancy} user_state={user_states}"
+        )
+        return None
+
+
+class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
+    def __init__(self, light_config: LightGroup, global_ks: Entity) -> None:
+        super().__init__()
+        entity = light_config.light_automation_entity
+        assert entity.domain.value == SENSOR_DOMAIN
+        self._attr_name = entity.name
+
+        self._global_killswitch_entity = global_ks.full
+        self._killswitch_entity = light_config.killswitch_entity.full
+        self._light_rule_entity = light_config.light_rule_entity.full
 
         self._dependent_entities = [
             self._global_killswitch_entity,
             self._killswitch_entity,
-            self._light_profile_entity,
-            self._movement_entity,
+            self._light_rule_entity,
         ]
 
-        self._light_entity = materialized_binding[FIELD_LIGHTS]
-        self._light_profiles = light_profiles
-
-    def calculate_current_state(self):
-        motion_state = self.hass.states.get(self._movement_entity)
-
-        profile = None
-        if motion_state is None:
-            profile = None
-        else:
-            motion_state = motion_state.state
-            if motion_state == LightMovementEntity.STATE_NO_MOTION:
-                profile = self._no_motion_profile
-            if motion_state in [
-                LightMovementEntity.STATE_PRESENT,
-                LightMovementEntity.STATE_COOLDOWN,
-            ]:
-                light_profile_state = self.hass.states.get(self._light_profile_entity)
-                if light_profile_state is None:
-                    profile = None
-                else:
-                    profile = light_profile_state.state
-
-        return {
-            "light_profile": profile,
-            "motion_state": motion_state,
+        self._light_entity = light_config.lights.entity
+        self._states = {r.state_name: r.state for r in light_config.rules}
+        self._icons = {
+            r.state_name: r.state.icon.value
+            for r in light_config.rules
+            if r.state.icon is not None
         }
 
-    def _apply_icon(self, new_state):
-        # we only care about what profile is being selected
-        return super()._apply_icon(new_state["light_profile"])
+    def calculate_current_state(self) -> str | None:
+        rule_state = self.hass.states.get(self._light_rule_entity)
+        # TODO: Deal with this better
+        if rule_state is None:
+            return None
 
-    def _apply_state(self, new_state):
-        light_profile_name = new_state["light_profile"]
-        motion_state = new_state["motion_state"]
-        change_light = True
+        return rule_state.state
 
-        if light_profile_name is None:
+    def _apply_state(self, light_rule: str | None) -> bool:
+        if light_rule is None or light_rule == "unknown":
             return False
+        target = self._states[light_rule]
 
-        display_name = light_profile_name
+        base_display_name = (
+            target.source_profile if target.source_profile else light_rule
+        )
+        display_name = base_display_name
         global_killswitch = self.hass.states.get(self._global_killswitch_entity)
+        change_light = True
         if global_killswitch is not None and global_killswitch.state == STATE_ON:
             _LOGGER.info(
                 "refusing to update {self._attr_name} because of global killswitch"
             )
             change_light = False
-            display_name = f"{light_profile_name}(global_ks)"
+            display_name = f"{base_display_name}(global_ks)"
 
         killswitch = self.hass.states.get(self._killswitch_entity)
         if killswitch is not None and killswitch.state == STATE_ON:
@@ -519,33 +448,47 @@ class LightAutomationEntity(CalculatedSensor, SensorEntity):
                 "refusing to update {self._attr_name} because of local killswitch"
             )
             change_light = False
-            display_name = f"{light_profile_name}(local_ks)"
-
-        if motion_state == LightMovementEntity.STATE_COOLDOWN:
-            display_name = f"{light_profile_name}(no_motion)"
+            display_name = f"{base_display_name}(local_ks)"
 
         # This sets the user facing attribute but doesn't change the light
         super()._apply_state(display_name)
 
         light_state = self.hass.states.get(self._light_entity)
         if light_state is None:
-            _LOGGER.warning(
-                f"Requested to update light {self._light_entity} for automation "
-                f"{self._attr_name} but that light appears to not exists"
-            )
+            pass
+            # _LOGGER.warning(
+            #     f"Requested to update light {self._light_entity} for automation "
+            #     f"{self._attr_name} but that light appears to not exists"
+            # )
         elif change_light:
-            light_profile = self._light_profiles[light_profile_name]
+            service = None
+            if target.enable is None:
+                if light_state.state == STATE_ON:
+                    service = SERVICE_TURN_ON
+            elif target.enable.value is True:
+                service = SERVICE_TURN_ON
+            elif target.enable.value is False:
+                service = SERVICE_TURN_OFF
+            else:
+                _LOGGER.warning(
+                    "Got unexpected value for target.enable " f"'{target.enable}'"
+                )
 
             service_data = {
                 ATTR_ENTITY_ID: self._light_entity,
             }
-            service = SERVICE_TURN_OFF
-            if light_profile[FIELD_ENABLED]:
-                service = SERVICE_TURN_ON
-                light_profile_brightness = light_profile.get(FIELD_BRIGHTNESS_PCT, None)
-                if light_profile_brightness is not None:
-                    service_data[ATTR_BRIGHTNESS_PCT] = light_profile_brightness
+            if service is None:
+                return True
+            elif service == SERVICE_TURN_ON:
+                if target.brightness:
+                    service_data[ATTR_BRIGHTNESS_PCT] = target.brightness.value
+                if target.transition is not None:
+                    service_data[ATTR_TRANSITION] = target.transition.value
 
+            _LOGGER.warning(
+                f"calling service {LIGHT_DOMAIN}.{service}, {service_data} for "
+                f"automation {self._attr_name}"
+            )
             asyncio.run_coroutine_threadsafe(
                 self.hass.services.async_call(
                     LIGHT_DOMAIN,

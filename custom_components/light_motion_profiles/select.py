@@ -1,18 +1,10 @@
-from .entity_names import (
-    person_override_home_away_entity,
-    person_state_entity,
-)
-from .schema_users_groups import (
-    FIELD_HOME_AWAY_ICONS,
-    FIELD_PERSON_STATES,
-    FIELD_STATE_ICONS,
-    FIELD_USER_GROUP_SETTINGS,
-    FIELD_USERS,
-    HOME_AWAY_STATES,
-)
+from typing import Set, List
+
+from .datatypes import Config, User
+from .config.settings import HomeAwayStates
 
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.components.select import SelectEntity
+from homeassistant.components.select import SelectEntity, DOMAIN as SELECT_DOMAIN
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -20,21 +12,22 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 async def async_setup_platform(
     hass: HomeAssistant,
-    whole_config: ConfigEntry,
+    raw_config: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info,
+    config: Config,
 ) -> None:
-    user_sensors = []
-    person_states = discovery_info[FIELD_USER_GROUP_SETTINGS][FIELD_PERSON_STATES]
-    for user, user_config in discovery_info[FIELD_USERS].items():
+    user_sensors: List[SelectEntity] = []
+    for user in config.users_groups.users.values():
         user_sensors.append(
-            HomeAwaySelect(user, icons=user_config[FIELD_HOME_AWAY_ICONS])
+            HomeAwaySelect(
+                user,
+                home_away_states=config.settings.users_groups.home_away_states,
+            )
         )
         user_sensors.append(
             PersonStateSelect(
                 user,
-                person_states=person_states,
-                icons=user_config[FIELD_STATE_ICONS],
+                person_states=config.settings.users_groups.valid_person_states,
             )
         )
 
@@ -42,11 +35,14 @@ async def async_setup_platform(
 
 
 class HomeAwaySelect(SelectEntity, RestoreEntity):
-    def __init__(self, name, icons):
-        self._attr_name = person_override_home_away_entity(name, without_domain=True)
-        self._attr_options = list(HOME_AWAY_STATES)
-        self._attr_current_option = None
-        self._icons = icons
+    def __init__(self, user: User, home_away_states: HomeAwayStates) -> None:
+        entity = user.home_away_override_entity
+        assert entity.domain.value == SELECT_DOMAIN
+
+        self._attr_name = entity.name
+        self._attr_options = list(home_away_states.all_states())
+        self._attr_current_option: str | None = None
+        self._icons = user.home_away_icons
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
@@ -67,11 +63,13 @@ class HomeAwaySelect(SelectEntity, RestoreEntity):
 
 
 class PersonStateSelect(SelectEntity, RestoreEntity):
-    def __init__(self, name, person_states, icons):
-        self._attr_name = person_state_entity(name, without_domain=True)
-        self._attr_options = person_states
-        self._attr_current_option = None
-        self._icons = icons
+    def __init__(self, user: User, person_states: Set[str]):
+        entity = user.state_entity
+        assert entity.domain.value == SELECT_DOMAIN
+        self._attr_name = entity.name
+        self._attr_options = list(person_states)
+        self._attr_current_option: str | None = None
+        self._icons = user.state_icons
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
