@@ -482,8 +482,9 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
             elif service == SERVICE_TURN_ON:
                 if target.brightness:
                     service_data[ATTR_BRIGHTNESS_PCT] = target.brightness.value
-                if target.transition is not None:
-                    service_data[ATTR_TRANSITION] = target.transition.value
+
+            if target.transition is not None:
+                service_data[ATTR_TRANSITION] = target.transition.value
 
             _LOGGER.warning(
                 f"calling service {LIGHT_DOMAIN}.{service}, {service_data} for "
