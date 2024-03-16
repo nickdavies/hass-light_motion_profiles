@@ -1,5 +1,5 @@
 from homeassistant.components.binary_sensor import (
-    DEVICE_CLASS_MOTION,
+    BinarySensorDeviceClass,
     BinarySensorEntity,
     DOMAIN as BS_DOMAIN,
 )
@@ -37,7 +37,7 @@ class MotionGroup(CalculatedSensor[bool], BinarySensorEntity):
         assert isinstance(config.occupancy_sensors, list)
 
         self._attr_name = entity.name
-        self._attr_device_class = DEVICE_CLASS_MOTION
+        self._attr_device_class = BinarySensorDeviceClass.MOTION
         self._dependent_entities = [e.entity for e in config.occupancy_sensors]
 
     def calculate_current_state(self) -> bool:
