@@ -172,7 +172,7 @@ class RuleMatch:
         if not self.occupancy.match(occupancy_state):
             return False
 
-        return any(s.match(user_state) for s in self.user_state)
+        return all(s.match(user_state) for s in self.user_state)
 
     def get_users(self) -> Set[str]:
         out = set()
