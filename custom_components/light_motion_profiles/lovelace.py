@@ -2,9 +2,10 @@ from abc import ABC, abstractmethod
 from typing import Sequence, Dict, Mapping, Any, Tuple
 
 
+from homeassistant.components.lovelace.const import MODE_YAML
 from homeassistant.components.lovelace.dashboard import LovelaceConfig
 from homeassistant.components.lovelace import _register_panel
-from homeassistant.components.lovelace.const import MODE_YAML
+from homeassistant.helpers.json import json_bytes, json_fragment
 
 DBT = Mapping[str, Any]
 
@@ -163,6 +164,10 @@ class ManualLovelaceYAML(LovelaceConfig):
         if is_updated:
             self._config_updated()
         return config
+
+    async def async_json(self, force: bool) -> json_fragment:
+        config = await self.async_load(force)
+        return json_fragment(json_bytes(config))
 
     async def _load_config(self, force: bool) -> Tuple[bool, DBT]:
         if self._cache is not None:
