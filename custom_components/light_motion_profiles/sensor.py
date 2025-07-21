@@ -122,7 +122,7 @@ class CalculatedSensor(Generic[T]):
         changed = self._apply_state(new_state)
         if changed:
             self._apply_icon(new_state)
-            self.async_write_ha_state()
+            self.schedule_update_ha_state()
         return changed
 
     def _force_update(self, event: Any) -> None:
