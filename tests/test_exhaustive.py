@@ -1,5 +1,4 @@
 """Tests for exhaustive.py - truth table generation and rule validation."""
-import pytest
 
 from custom_components.light_motion_profiles.exhaustive import (
     Wildcard,
@@ -9,8 +8,6 @@ from custom_components.light_motion_profiles.exhaustive import (
     calculate_key,
 )
 from custom_components.light_motion_profiles.datatypes import (
-    User,
-    Group,
     UsersGroups,
     Domains,
     Settings,
@@ -19,7 +16,9 @@ from custom_components.light_motion_profiles.datatypes.entity import Domain
 from custom_components.light_motion_profiles.config.settings import (
     AllSettings as RawAllSettings,
 )
-from custom_components.light_motion_profiles.config.users_groups import UserConfig as RawUserConfig
+from custom_components.light_motion_profiles.config.users_groups import (
+    UserConfig as RawUserConfig,
+)
 
 
 def _make_domains():
@@ -39,10 +38,12 @@ def _make_domains():
 
 
 def _make_settings():
-    raw = RawAllSettings.from_yaml({
-        "room": {"valid_room_states": ["default", "night"]},
-        "user_group": {"valid_person_states": ["awake", "winddown", "asleep"]},
-    })
+    raw = RawAllSettings.from_yaml(
+        {
+            "room": {"valid_room_states": ["default", "night"]},
+            "user_group": {"valid_person_states": ["awake", "winddown", "asleep"]},
+        }
+    )
     return Settings(raw, _make_domains())
 
 

@@ -1,24 +1,23 @@
 """Tests for datatypes/__init__.py - data model and validation."""
+
 import pytest
 
 from custom_components.light_motion_profiles.config.light_profiles import (
     LightProfile as RawLightProfile,
-    LightRule as RawLightRule,
 )
 from custom_components.light_motion_profiles.config.settings import (
     AllSettings as RawAllSettings,
 )
-from custom_components.light_motion_profiles.config.users_groups import UserConfig as RawUserConfig
+from custom_components.light_motion_profiles.config.users_groups import (
+    UserConfig as RawUserConfig,
+)
 from custom_components.light_motion_profiles.config.validators import InvalidConfigError
 from custom_components.light_motion_profiles.datatypes import (
     Settings,
     LightState,
-    LightRule,
-    LightGroup,
     User,
     Group,
     UsersGroups,
-    Config,
     Domains,
     Entity,
 )
@@ -43,10 +42,12 @@ def _make_domains():
 
 
 def _make_settings_raw():
-    return RawAllSettings.from_yaml({
-        "room": {"valid_room_states": ["default", "night"]},
-        "user_group": {"valid_person_states": ["awake", "winddown", "asleep"]},
-    })
+    return RawAllSettings.from_yaml(
+        {
+            "room": {"valid_room_states": ["default", "night"]},
+            "user_group": {"valid_person_states": ["awake", "winddown", "asleep"]},
+        }
+    )
 
 
 def _make_settings():
@@ -88,7 +89,9 @@ class TestGroupResolveGroupStates:
         assert result == {"absent"}
 
     def test_set_input_merged(self):
-        result = Group.resolve_group_states(iter([{"awake", "winddown"}, "asleep"]), "absent")
+        result = Group.resolve_group_states(
+            iter([{"awake", "winddown"}, "asleep"]), "absent"
+        )
         assert result == {"awake", "winddown", "asleep"}
 
     def test_set_input_with_absent_discarded(self):
@@ -252,7 +255,9 @@ class TestEntityProperties:
 class TestLightState:
     def test_full_profile(self):
         settings = _make_settings()
-        raw = RawLightProfile(enabled=True, icon="mdi:light", brightness_pct=75, transition=2)
+        raw = RawLightProfile(
+            enabled=True, icon="mdi:light", brightness_pct=75, transition=2
+        )
         ls = LightState("full", raw, settings)
         assert ls.source_profile == "full"
         assert ls.enable.value is True
@@ -262,7 +267,9 @@ class TestLightState:
 
     def test_minimal_profile(self):
         settings = _make_settings()
-        raw = RawLightProfile(enabled=None, icon=None, brightness_pct=None, transition=None)
+        raw = RawLightProfile(
+            enabled=None, icon=None, brightness_pct=None, transition=None
+        )
         ls = LightState("noop", raw, settings)
         assert ls.enable is None
         assert ls.brightness is None

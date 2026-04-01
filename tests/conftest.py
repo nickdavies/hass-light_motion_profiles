@@ -5,6 +5,7 @@ Since this integration imports from homeassistant extensively,
 we mock the entire homeassistant package so tests can run without installing HA.
 This must be imported before any custom_components imports.
 """
+
 import sys
 import types
 from unittest.mock import MagicMock
@@ -35,20 +36,26 @@ def _setup_ha_mock():
     ha.__path__ = []
 
     # homeassistant.core
-    ha_core = mock_module("homeassistant.core", {
-        "HomeAssistant": MagicMock,
-        "callback": lambda f: f,
-    })
+    mock_module(
+        "homeassistant.core",
+        {
+            "HomeAssistant": MagicMock,
+            "callback": lambda f: f,
+        },
+    )
 
     # homeassistant.const
-    ha_const = mock_module("homeassistant.const", {
-        "Platform": MagicMock(),
-        "STATE_ON": "on",
-        "STATE_OFF": "off",
-        "SERVICE_TURN_ON": "turn_on",
-        "SERVICE_TURN_OFF": "turn_off",
-        "ATTR_ENTITY_ID": "entity_id",
-    })
+    mock_module(
+        "homeassistant.const",
+        {
+            "Platform": MagicMock(),
+            "STATE_ON": "on",
+            "STATE_OFF": "off",
+            "SERVICE_TURN_ON": "turn_on",
+            "SERVICE_TURN_OFF": "turn_off",
+            "ATTR_ENTITY_ID": "entity_id",
+        },
+    )
 
     # homeassistant.config_entries
     magic_module("homeassistant.config_entries")
@@ -58,11 +65,14 @@ def _setup_ha_mock():
     ha_helpers.__path__ = []
 
     # homeassistant.helpers.config_validation
-    ha_cv = mock_module("homeassistant.helpers.config_validation", {
-        "string": str,
-        "boolean": bool,
-        "positive_int": int,
-    })
+    ha_cv = mock_module(
+        "homeassistant.helpers.config_validation",
+        {
+            "string": str,
+            "boolean": bool,
+            "positive_int": int,
+        },
+    )
 
     ha_helpers.config_validation = ha_cv
 
@@ -79,10 +89,13 @@ def _setup_ha_mock():
     magic_module("homeassistant.helpers.restore_state")
 
     # homeassistant.helpers.json
-    ha_json = mock_module("homeassistant.helpers.json", {
-        "json_bytes": MagicMock(),
-        "json_fragment": MagicMock(),
-    })
+    mock_module(
+        "homeassistant.helpers.json",
+        {
+            "json_bytes": MagicMock(),
+            "json_fragment": MagicMock(),
+        },
+    )
 
     # -- homeassistant.util --
     ha_util = mock_module("homeassistant.util")
@@ -95,46 +108,67 @@ def _setup_ha_mock():
     ha_components.__path__ = []
 
     # homeassistant.components.light
-    mock_module("homeassistant.components.light", {
-        "ATTR_BRIGHTNESS_PCT": "brightness_pct",
-        "ATTR_TRANSITION": "transition",
-        "DOMAIN": "light",
-    })
+    mock_module(
+        "homeassistant.components.light",
+        {
+            "ATTR_BRIGHTNESS_PCT": "brightness_pct",
+            "ATTR_TRANSITION": "transition",
+            "DOMAIN": "light",
+        },
+    )
 
     # homeassistant.components.sensor
-    mock_module("homeassistant.components.sensor", {
-        "SensorEntity": MagicMock,
-        "DOMAIN": "sensor",
-    })
+    mock_module(
+        "homeassistant.components.sensor",
+        {
+            "SensorEntity": MagicMock,
+            "DOMAIN": "sensor",
+        },
+    )
 
     # homeassistant.components.select
-    mock_module("homeassistant.components.select", {
-        "SelectEntity": MagicMock,
-        "DOMAIN": "select",
-    })
+    mock_module(
+        "homeassistant.components.select",
+        {
+            "SelectEntity": MagicMock,
+            "DOMAIN": "select",
+        },
+    )
 
     # homeassistant.components.switch
-    mock_module("homeassistant.components.switch", {
-        "SwitchEntity": MagicMock,
-        "DOMAIN": "switch",
-    })
+    mock_module(
+        "homeassistant.components.switch",
+        {
+            "SwitchEntity": MagicMock,
+            "DOMAIN": "switch",
+        },
+    )
 
     # homeassistant.components.binary_sensor
-    mock_module("homeassistant.components.binary_sensor", {
-        "BinarySensorDeviceClass": MagicMock(),
-        "BinarySensorEntity": MagicMock,
-        "DOMAIN": "binary_sensor",
-    })
+    mock_module(
+        "homeassistant.components.binary_sensor",
+        {
+            "BinarySensorDeviceClass": MagicMock(),
+            "BinarySensorEntity": MagicMock,
+            "DOMAIN": "binary_sensor",
+        },
+    )
 
     # homeassistant.components.lovelace
-    ha_lovelace = mock_module("homeassistant.components.lovelace", {
-        "_register_panel": MagicMock(),
-    })
+    ha_lovelace = mock_module(
+        "homeassistant.components.lovelace",
+        {
+            "_register_panel": MagicMock(),
+        },
+    )
     ha_lovelace.__path__ = []
 
-    mock_module("homeassistant.components.lovelace.const", {
-        "MODE_YAML": "yaml",
-    })
+    mock_module(
+        "homeassistant.components.lovelace.const",
+        {
+            "MODE_YAML": "yaml",
+        },
+    )
 
     # LovelaceConfig needs to be a real class (it's subclassed)
     class _MockLovelaceConfig:
@@ -146,9 +180,12 @@ def _setup_ha_mock():
         def _config_updated(self):
             pass
 
-    mock_module("homeassistant.components.lovelace.dashboard", {
-        "LovelaceConfig": _MockLovelaceConfig,
-    })
+    mock_module(
+        "homeassistant.components.lovelace.dashboard",
+        {
+            "LovelaceConfig": _MockLovelaceConfig,
+        },
+    )
 
 
 # Must run before any custom_components imports

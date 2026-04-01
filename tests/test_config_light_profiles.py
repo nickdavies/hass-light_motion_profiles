@@ -1,4 +1,5 @@
 """Tests for config/light_profiles.py."""
+
 import pytest
 
 from custom_components.light_motion_profiles.config.light_profiles import (

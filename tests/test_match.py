@@ -1,4 +1,5 @@
 """Tests for datatypes/match.py - the core rule matching logic."""
+
 import pytest
 
 from custom_components.light_motion_profiles.config.light_profiles import (
@@ -152,15 +153,21 @@ class TestMatchMultiExact:
 
 class TestMatchUserSingle:
     def test_matches_user_state(self):
-        m = MatchUserSingle(user="nick", match_multi=MatchMultiAny(MatchSingleExplicit("awake")))
+        m = MatchUserSingle(
+            user="nick", match_multi=MatchMultiAny(MatchSingleExplicit("awake"))
+        )
         assert m.match({"nick": "awake", "partner": "asleep"}) is True
 
     def test_rejects_wrong_state(self):
-        m = MatchUserSingle(user="nick", match_multi=MatchMultiAny(MatchSingleExplicit("awake")))
+        m = MatchUserSingle(
+            user="nick", match_multi=MatchMultiAny(MatchSingleExplicit("awake"))
+        )
         assert m.match({"nick": "asleep", "partner": "asleep"}) is False
 
     def test_missing_user_raises_error(self):
-        m = MatchUserSingle(user="nick", match_multi=MatchMultiAny(MatchSingleExplicit("awake")))
+        m = MatchUserSingle(
+            user="nick", match_multi=MatchMultiAny(MatchSingleExplicit("awake"))
+        )
         with pytest.raises(MatchError, match="nick"):
             m.match({"partner": "asleep"})
 
@@ -174,13 +181,20 @@ class TestMatchUserWildcard:
 
 class TestMatchUserFromRaw:
     def test_state_any(self):
-        raw = RawUserState(user="nick", state_any=RawMatch(value="awake"), state_all=None, state_exact=None)
+        raw = RawUserState(
+            user="nick",
+            state_any=RawMatch(value="awake"),
+            state_all=None,
+            state_exact=None,
+        )
         result = MatchUser.from_raw(raw)
         assert isinstance(result, MatchUserSingle)
         assert result.match({"nick": "awake"}) is True
 
     def test_state_all(self):
-        raw = RawUserState(user="nick", state_any=None, state_all=RawMatch(value="*"), state_exact=None)
+        raw = RawUserState(
+            user="nick", state_any=None, state_all=RawMatch(value="*"), state_exact=None
+        )
         result = MatchUser.from_raw(raw)
         assert isinstance(result, MatchUserSingle)
         assert result.match({"nick": {"awake", "winddown"}}) is True
@@ -207,7 +221,12 @@ class TestRuleMatch:
             room_state=RawMatch(value="default"),
             occupancy=RawMatch(value="occupied"),
             user_state=[
-                RawUserState(user="nick", state_any=RawMatch(value="awake"), state_all=None, state_exact=None),
+                RawUserState(
+                    user="nick",
+                    state_any=RawMatch(value="awake"),
+                    state_all=None,
+                    state_exact=None,
+                ),
             ],
         )
         assert rm.match("default", "occupied", {"nick": "awake"}) is True
@@ -249,8 +268,18 @@ class TestRuleMatch:
             room_state=RawMatch(value="*"),
             occupancy=RawMatch(value="*"),
             user_state=[
-                RawUserState(user="nick", state_any=RawMatch(value="awake"), state_all=None, state_exact=None),
-                RawUserState(user="partner", state_any=RawMatch(value="*"), state_all=None, state_exact=None),
+                RawUserState(
+                    user="nick",
+                    state_any=RawMatch(value="awake"),
+                    state_all=None,
+                    state_exact=None,
+                ),
+                RawUserState(
+                    user="partner",
+                    state_any=RawMatch(value="*"),
+                    state_all=None,
+                    state_exact=None,
+                ),
             ],
         )
         assert rm.get_users() == {"nick", "partner"}
@@ -268,12 +297,28 @@ class TestRuleMatch:
             room_state=RawMatch(value="*"),
             occupancy=RawMatch(value="*"),
             user_state=[
-                RawUserState(user="nick", state_any=RawMatch(value="awake"), state_all=None, state_exact=None),
-                RawUserState(user="partner", state_any=RawMatch(value="asleep"), state_all=None, state_exact=None),
+                RawUserState(
+                    user="nick",
+                    state_any=RawMatch(value="awake"),
+                    state_all=None,
+                    state_exact=None,
+                ),
+                RawUserState(
+                    user="partner",
+                    state_any=RawMatch(value="asleep"),
+                    state_all=None,
+                    state_exact=None,
+                ),
             ],
         )
-        assert rm.match("default", "occupied", {"nick": "awake", "partner": "asleep"}) is True
-        assert rm.match("default", "occupied", {"nick": "awake", "partner": "awake"}) is False
+        assert (
+            rm.match("default", "occupied", {"nick": "awake", "partner": "asleep"})
+            is True
+        )
+        assert (
+            rm.match("default", "occupied", {"nick": "awake", "partner": "awake"})
+            is False
+        )
 
     def test_set_match_in_room_state(self):
         rm = RuleMatch(

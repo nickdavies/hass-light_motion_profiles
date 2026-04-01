@@ -1,4 +1,5 @@
 """Tests for config/validators.py."""
+
 import pytest
 import voluptuous as vol
 

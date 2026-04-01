@@ -1,4 +1,5 @@
 """Tests for config/settings.py."""
+
 from custom_components.light_motion_profiles.config.settings import (
     OccupancyStates,
     HomeAwayStates,
