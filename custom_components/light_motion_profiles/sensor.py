@@ -495,8 +495,8 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
                     brightness_val = target.brightness.resolve(self.hass)
                     if brightness_val is not None:
                         service_data[ATTR_BRIGHTNESS_PCT] = int(float(brightness_val))
-                if target.color:
-                    color_val = target.color.resolve(self.hass)
+                if target.color_temp:
+                    color_val = target.color_temp.resolve(self.hass)
                     if color_val is not None:
                         service_data[ATTR_COLOR_TEMP_KELVIN] = int(float(color_val))
 

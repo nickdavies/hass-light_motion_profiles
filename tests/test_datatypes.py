@@ -267,7 +267,7 @@ class TestLightState:
         assert ls.source_profile == "full"
         assert ls.enable.value is True
         assert ls.brightness.value == 75
-        assert ls.color.value == 3000
+        assert ls.color_temp.value == 3000
         assert ls.icon.value == "mdi:light"
         assert ls.transition.value == 2
 
@@ -284,7 +284,7 @@ class TestLightState:
         assert ls.enable is None
         assert ls.brightness is None
         assert ls.icon is None
-        assert ls.color is None
+        assert ls.color_temp is None
         assert ls.transition.value == 0
 
     def test_color_not_set_when_not_configured(self):
@@ -302,7 +302,7 @@ class TestLightState:
             transition=None,
         )
         ls = LightState("no_color", raw, settings)
-        assert ls.color is None
+        assert ls.color_temp is None
 
     def test_color_temp_kelvin_static(self):
         settings = _make_settings()
@@ -314,9 +314,9 @@ class TestLightState:
             transition=None,
         )
         ls = LightState("warm", raw, settings)
-        assert ls.color is not None
-        assert ls.color.value == 2700
-        assert ls.color.entity_id is None
+        assert ls.color_temp is not None
+        assert ls.color_temp.value == 2700
+        assert ls.color_temp.entity_id is None
 
     def test_color_temp_kelvin_entity(self):
         settings = _make_settings()
@@ -328,9 +328,9 @@ class TestLightState:
             transition=None,
         )
         ls = LightState("adaptive_color", raw, settings)
-        assert ls.color is not None
-        assert ls.color.entity_id == "input_number.color_temp"
-        assert ls.color.value is None
+        assert ls.color_temp is not None
+        assert ls.color_temp.entity_id == "input_number.color_temp"
+        assert ls.color_temp.value is None
 
     def test_brightness_entity(self):
         settings = _make_settings()
