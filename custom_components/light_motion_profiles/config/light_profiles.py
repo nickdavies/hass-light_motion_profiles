@@ -3,6 +3,7 @@ This file contains only the "pure" structs for the config without
 any templating in them at all. This is all fully resolved after
 templates are applied
 """
+
 from dataclasses import dataclass
 from typing import List, Mapping, Any, Set
 

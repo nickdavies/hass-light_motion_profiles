@@ -65,7 +65,9 @@ class LightState:
         self.brightness = _make_data_source(config.brightness_pct, int)
         self.color = _make_data_source(config.color_temp_kelvin, int)
         transition_source = _make_data_source(config.transition, int)
-        self.transition = transition_source if transition_source is not None else DataSource(value=0)
+        self.transition = (
+            transition_source if transition_source is not None else DataSource(value=0)
+        )
 
     def get_entity_ids(self) -> List[str]:
         """Collect entity IDs from all DataSource fields for subscriptions."""

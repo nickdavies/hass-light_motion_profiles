@@ -3,6 +3,7 @@ This file contains all the possible templates. It doesn't include
 any logic for detecting where the templates should be subsituted into
 only the data under the `templates` key in the config
 """
+
 from dataclasses import dataclass
 from typing import Set, Mapping, List, Any
 

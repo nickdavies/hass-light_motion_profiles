@@ -474,11 +474,15 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
                 enable_val = target.enable.resolve(self.hass)
                 if enable_val is True or enable_val == "True" or enable_val == "true":
                     service = SERVICE_TURN_ON
-                elif enable_val is False or enable_val == "False" or enable_val == "false":
+                elif (
+                    enable_val is False
+                    or enable_val == "False"
+                    or enable_val == "false"
+                ):
                     service = SERVICE_TURN_OFF
                 else:
                     _LOGGER.warning(
-                        "Got unexpected value for target.enable " f"'{enable_val}'"
+                        f"Got unexpected value for target.enable '{enable_val}'"
                     )
 
             service_data = {

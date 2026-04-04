@@ -137,12 +137,18 @@ class TestLightProfile:
         assert lp.color_temp_kelvin == 2700
 
     def test_from_yaml_color_temp_kelvin_entity(self):
-        data = {"enabled": True, "color_temp_kelvin": {"entity_id": "input_number.color_temp"}}
+        data = {
+            "enabled": True,
+            "color_temp_kelvin": {"entity_id": "input_number.color_temp"},
+        }
         lp = LightProfile.from_yaml(data)
         assert lp.color_temp_kelvin == {"entity_id": "input_number.color_temp"}
 
     def test_from_yaml_brightness_entity(self):
-        data = {"enabled": True, "brightness_pct": {"entity_id": "input_number.brightness"}}
+        data = {
+            "enabled": True,
+            "brightness_pct": {"entity_id": "input_number.brightness"},
+        }
         lp = LightProfile.from_yaml(data)
         assert lp.brightness_pct == {"entity_id": "input_number.brightness"}
 

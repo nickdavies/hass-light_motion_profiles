@@ -256,8 +256,11 @@ class TestLightState:
     def test_full_profile(self):
         settings = _make_settings()
         raw = RawLightProfile(
-            enabled=True, icon="mdi:light", brightness_pct=75,
-            color_temp_kelvin=3000, transition=2,
+            enabled=True,
+            icon="mdi:light",
+            brightness_pct=75,
+            color_temp_kelvin=3000,
+            transition=2,
         )
         ls = LightState("full", raw, settings)
         assert ls.source_profile == "full"
@@ -270,8 +273,11 @@ class TestLightState:
     def test_minimal_profile(self):
         settings = _make_settings()
         raw = RawLightProfile(
-            enabled=None, icon=None, brightness_pct=None,
-            color_temp_kelvin=None, transition=None,
+            enabled=None,
+            icon=None,
+            brightness_pct=None,
+            color_temp_kelvin=None,
+            transition=None,
         )
         ls = LightState("noop", raw, settings)
         assert ls.enable is None
@@ -288,8 +294,11 @@ class TestLightState:
         """
         settings = _make_settings()
         raw = RawLightProfile(
-            enabled=True, icon=None, brightness_pct=100,
-            color_temp_kelvin=None, transition=None,
+            enabled=True,
+            icon=None,
+            brightness_pct=100,
+            color_temp_kelvin=None,
+            transition=None,
         )
         ls = LightState("no_color", raw, settings)
         assert ls.color is None
@@ -297,8 +306,11 @@ class TestLightState:
     def test_color_temp_kelvin_static(self):
         settings = _make_settings()
         raw = RawLightProfile(
-            enabled=True, icon=None, brightness_pct=None,
-            color_temp_kelvin=2700, transition=None,
+            enabled=True,
+            icon=None,
+            brightness_pct=None,
+            color_temp_kelvin=2700,
+            transition=None,
         )
         ls = LightState("warm", raw, settings)
         assert ls.color is not None
@@ -308,7 +320,9 @@ class TestLightState:
     def test_color_temp_kelvin_entity(self):
         settings = _make_settings()
         raw = RawLightProfile(
-            enabled=True, icon=None, brightness_pct=None,
+            enabled=True,
+            icon=None,
+            brightness_pct=None,
             color_temp_kelvin={"entity_id": "input_number.color_temp"},
             transition=None,
         )
@@ -320,9 +334,11 @@ class TestLightState:
     def test_brightness_entity(self):
         settings = _make_settings()
         raw = RawLightProfile(
-            enabled=True, icon=None,
+            enabled=True,
+            icon=None,
             brightness_pct={"entity_id": "input_number.brightness"},
-            color_temp_kelvin=None, transition=None,
+            color_temp_kelvin=None,
+            transition=None,
         )
         ls = LightState("adaptive_bright", raw, settings)
         assert ls.brightness is not None
@@ -331,7 +347,9 @@ class TestLightState:
     def test_transition_entity(self):
         settings = _make_settings()
         raw = RawLightProfile(
-            enabled=True, icon=None, brightness_pct=None,
+            enabled=True,
+            icon=None,
+            brightness_pct=None,
             color_temp_kelvin=None,
             transition={"entity_id": "input_number.transition"},
         )
@@ -341,7 +359,8 @@ class TestLightState:
     def test_get_entity_ids_collects_all(self):
         settings = _make_settings()
         raw = RawLightProfile(
-            enabled=True, icon=None,
+            enabled=True,
+            icon=None,
             brightness_pct={"entity_id": "input_number.brightness"},
             color_temp_kelvin={"entity_id": "input_number.color_temp"},
             transition={"entity_id": "input_number.transition"},
@@ -355,8 +374,11 @@ class TestLightState:
     def test_get_entity_ids_empty_for_static(self):
         settings = _make_settings()
         raw = RawLightProfile(
-            enabled=True, icon=None, brightness_pct=75,
-            color_temp_kelvin=2700, transition=5,
+            enabled=True,
+            icon=None,
+            brightness_pct=75,
+            color_temp_kelvin=2700,
+            transition=5,
         )
         ls = LightState("static", raw, settings)
         assert ls.get_entity_ids() == []
