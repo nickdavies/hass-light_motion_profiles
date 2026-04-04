@@ -256,25 +256,110 @@ class TestLightState:
     def test_full_profile(self):
         settings = _make_settings()
         raw = RawLightProfile(
-            enabled=True, icon="mdi:light", brightness_pct=75, transition=2
+            enabled=True, icon="mdi:light", brightness_pct=75,
+            color_temp_kelvin=3000, transition=2,
         )
         ls = LightState("full", raw, settings)
         assert ls.source_profile == "full"
         assert ls.enable.value is True
         assert ls.brightness.value == 75
+        assert ls.color.value == 3000
         assert ls.icon.value == "mdi:light"
         assert ls.transition.value == 2
 
     def test_minimal_profile(self):
         settings = _make_settings()
         raw = RawLightProfile(
-            enabled=None, icon=None, brightness_pct=None, transition=None
+            enabled=None, icon=None, brightness_pct=None,
+            color_temp_kelvin=None, transition=None,
         )
         ls = LightState("noop", raw, settings)
         assert ls.enable is None
         assert ls.brightness is None
         assert ls.icon is None
+        assert ls.color is None
         assert ls.transition.value == 0
+
+    def test_color_not_set_when_not_configured(self):
+        """When color_temp_kelvin is not specified, LightState.color must be None.
+
+        This ensures color temp is never included in the service call,
+        preserving external color management.
+        """
+        settings = _make_settings()
+        raw = RawLightProfile(
+            enabled=True, icon=None, brightness_pct=100,
+            color_temp_kelvin=None, transition=None,
+        )
+        ls = LightState("no_color", raw, settings)
+        assert ls.color is None
+
+    def test_color_temp_kelvin_static(self):
+        settings = _make_settings()
+        raw = RawLightProfile(
+            enabled=True, icon=None, brightness_pct=None,
+            color_temp_kelvin=2700, transition=None,
+        )
+        ls = LightState("warm", raw, settings)
+        assert ls.color is not None
+        assert ls.color.value == 2700
+        assert ls.color.entity_id is None
+
+    def test_color_temp_kelvin_entity(self):
+        settings = _make_settings()
+        raw = RawLightProfile(
+            enabled=True, icon=None, brightness_pct=None,
+            color_temp_kelvin={"entity_id": "input_number.color_temp"},
+            transition=None,
+        )
+        ls = LightState("adaptive_color", raw, settings)
+        assert ls.color is not None
+        assert ls.color.entity_id == "input_number.color_temp"
+        assert ls.color.value is None
+
+    def test_brightness_entity(self):
+        settings = _make_settings()
+        raw = RawLightProfile(
+            enabled=True, icon=None,
+            brightness_pct={"entity_id": "input_number.brightness"},
+            color_temp_kelvin=None, transition=None,
+        )
+        ls = LightState("adaptive_bright", raw, settings)
+        assert ls.brightness is not None
+        assert ls.brightness.entity_id == "input_number.brightness"
+
+    def test_transition_entity(self):
+        settings = _make_settings()
+        raw = RawLightProfile(
+            enabled=True, icon=None, brightness_pct=None,
+            color_temp_kelvin=None,
+            transition={"entity_id": "input_number.transition"},
+        )
+        ls = LightState("adaptive_transition", raw, settings)
+        assert ls.transition.entity_id == "input_number.transition"
+
+    def test_get_entity_ids_collects_all(self):
+        settings = _make_settings()
+        raw = RawLightProfile(
+            enabled=True, icon=None,
+            brightness_pct={"entity_id": "input_number.brightness"},
+            color_temp_kelvin={"entity_id": "input_number.color_temp"},
+            transition={"entity_id": "input_number.transition"},
+        )
+        ls = LightState("all_entities", raw, settings)
+        ids = ls.get_entity_ids()
+        assert "input_number.brightness" in ids
+        assert "input_number.color_temp" in ids
+        assert "input_number.transition" in ids
+
+    def test_get_entity_ids_empty_for_static(self):
+        settings = _make_settings()
+        raw = RawLightProfile(
+            enabled=True, icon=None, brightness_pct=75,
+            color_temp_kelvin=2700, transition=5,
+        )
+        ls = LightState("static", raw, settings)
+        assert ls.get_entity_ids() == []
 
 
 # --- DataSource / InputEntity ---
@@ -288,6 +373,66 @@ class TestDataSource:
     def test_holds_string(self):
         ds = DataSource("hello")
         assert ds.value == "hello"
+
+    def test_static_resolve_returns_value(self):
+        ds = DataSource(75)
+        assert ds.resolve(None) == 75
+
+    def test_entity_resolve_returns_entity_state(self):
+        class MockState:
+            state = "80.0"
+
+        class MockHass:
+            class states:
+                @staticmethod
+                def get(entity_id):
+                    if entity_id == "input_number.brightness":
+                        return MockState()
+                    return None
+
+        ds = DataSource(entity_id="input_number.brightness")
+        assert ds.resolve(MockHass()) == "80.0"
+
+    def test_entity_resolve_falls_back_when_unavailable(self):
+        class MockState:
+            state = "unavailable"
+
+        class MockHass:
+            class states:
+                @staticmethod
+                def get(entity_id):
+                    return MockState()
+
+        ds = DataSource(value=50, entity_id="input_number.brightness")
+        assert ds.resolve(MockHass()) == 50
+
+    def test_entity_resolve_falls_back_when_missing(self):
+        class MockHass:
+            class states:
+                @staticmethod
+                def get(entity_id):
+                    return None
+
+        ds = DataSource(value=50, entity_id="input_number.brightness")
+        assert ds.resolve(MockHass()) == 50
+
+    def test_entity_resolve_no_fallback_returns_none(self):
+        class MockHass:
+            class states:
+                @staticmethod
+                def get(entity_id):
+                    return None
+
+        ds = DataSource(entity_id="input_number.brightness")
+        assert ds.resolve(MockHass()) is None
+
+    def test_get_entity_ids_with_entity(self):
+        ds = DataSource(entity_id="input_number.brightness")
+        assert ds.get_entity_ids() == ["input_number.brightness"]
+
+    def test_get_entity_ids_without_entity(self):
+        ds = DataSource(42)
+        assert ds.get_entity_ids() == []
 
 
 class TestInputEntity:

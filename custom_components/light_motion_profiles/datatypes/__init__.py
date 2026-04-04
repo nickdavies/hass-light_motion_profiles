@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Mapping, Set, Dict, Iterator
+from typing import Any, Callable, List, Mapping, Set, Dict, Iterator
 
 from ..config import RawConfig, LightConfig as RawLightConfig
 from ..config.light_profiles import (
@@ -19,6 +19,17 @@ from ..config.settings import (
 from .entity import InputEntity, Domains as Domains, Entity as Entity
 from .match import RuleMatch
 from .source import DataSource
+
+
+def _make_data_source(
+    raw_value: Any, cast_fn: Callable[[Any], Any] | None = None
+) -> DataSource | None:
+    """Create a DataSource from either a static value or an entity reference dict."""
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, dict) and "entity_id" in raw_value:
+        return DataSource(entity_id=raw_value["entity_id"])
+    return DataSource(value=cast_fn(raw_value) if cast_fn else raw_value)
 
 
 class Settings:
@@ -51,15 +62,18 @@ class LightState:
         self.enable = (
             DataSource(bool(config.enabled)) if config.enabled is not None else None
         )
-        self.brightness = (
-            DataSource(int(config.brightness_pct))
-            if config.brightness_pct is not None
-            else None
-        )
-        self.color = None
-        self.transition = DataSource(
-            config.transition if config.transition is not None else 0
-        )
+        self.brightness = _make_data_source(config.brightness_pct, int)
+        self.color = _make_data_source(config.color_temp_kelvin, int)
+        transition_source = _make_data_source(config.transition, int)
+        self.transition = transition_source if transition_source is not None else DataSource(value=0)
+
+    def get_entity_ids(self) -> List[str]:
+        """Collect entity IDs from all DataSource fields for subscriptions."""
+        ids: List[str] = []
+        for field in (self.enable, self.brightness, self.color, self.transition):
+            if field is not None:
+                ids.extend(field.get_entity_ids())
+        return ids
 
 
 @dataclass
