@@ -123,6 +123,33 @@ async def test_empty_turns_off_with_transition(
     assert call.data.get("transition") == 10
 
 
+async def test_no_transition_sends_zero(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    """Rules without transition must explicitly send transition=0.
+
+    Regression test: previously, omitting transition meant HA would reuse the
+    last transition value (e.g. 10s from disable_slowly), causing lights to
+    fade out/in when they should snap immediately.
+    """
+    # First trigger disable_slowly so HA sees transition=10
+    hass.states.async_set(SIMPLE_ROOM_MOTION, "off")
+    await flush(hass)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=181))
+    await flush(hass)
+    call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
+    assert call.data.get("transition") == 10
+
+    # Now trigger someone_awake (full profile — no transition configured)
+    hass.states.async_set(SIMPLE_ROOM_MOTION, "on")
+    await flush(hass)
+    call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
+    assert call is not None
+    assert call.service == "turn_on"
+    # Must explicitly send transition=0, not omit it
+    assert call.data.get("transition") == 0
+
+
 # --- Killswitch tests ---
 
 
