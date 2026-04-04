@@ -133,7 +133,7 @@ class GeneratedDashboard(ABC):
         url = self.url_path
         dashboard_config = self.config
 
-        hass.data["lovelace"]["dashboards"][url] = ManualLovelaceYAML(
+        hass.data["lovelace"].dashboards[url] = ManualLovelaceYAML(
             hass,
             self.url_path,
             dashboard_config,
