@@ -20,6 +20,7 @@ from custom_components.light_motion_profiles.datatypes import (
     UsersGroups,
     Domains,
     Entity,
+    _make_data_source,
 )
 from custom_components.light_motion_profiles.datatypes.entity import Domain, InputEntity
 from custom_components.light_motion_profiles.datatypes.source import DataSource
@@ -455,6 +456,60 @@ class TestDataSource:
     def test_get_entity_ids_without_entity(self):
         ds = DataSource(42)
         assert ds.get_entity_ids() == []
+
+
+class TestMakeDataSource:
+    def test_none_returns_none(self):
+        assert _make_data_source(None) is None
+
+    def test_static_int(self):
+        ds = _make_data_source(75, int)
+        assert ds is not None
+        assert ds.value == 75
+        assert ds.entity_id is None
+
+    def test_static_string_with_cast(self):
+        ds = _make_data_source("100", int)
+        assert ds is not None
+        assert ds.value == 100
+
+    def test_static_without_cast(self):
+        ds = _make_data_source("hello")
+        assert ds is not None
+        assert ds.value == "hello"
+
+    def test_entity_dict(self):
+        ds = _make_data_source({"entity_id": "input_number.brightness"}, int)
+        assert ds is not None
+        assert ds.entity_id == "input_number.brightness"
+        assert ds.value is None
+
+    def test_entity_dict_without_cast(self):
+        ds = _make_data_source({"entity_id": "input_number.test"})
+        assert ds is not None
+        assert ds.entity_id == "input_number.test"
+        assert ds.value is None
+
+    def test_dict_without_entity_id_treated_as_static(self):
+        ds = _make_data_source({"other_key": "val"})
+        assert ds is not None
+        assert ds.value == {"other_key": "val"}
+        assert ds.entity_id is None
+
+
+class TestDataSourceResolveUnknown:
+    def test_entity_resolve_falls_back_when_unknown(self):
+        class MockState:
+            state = "unknown"
+
+        class MockHass:
+            class states:
+                @staticmethod
+                def get(entity_id):
+                    return MockState()
+
+        ds = DataSource(value=42, entity_id="input_number.test")
+        assert ds.resolve(MockHass()) == 42
 
 
 class TestInputEntity:
