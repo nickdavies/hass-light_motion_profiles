@@ -4,11 +4,31 @@ Test configuration and Home Assistant mocks.
 Since this integration imports from homeassistant extensively,
 we mock the entire homeassistant package so tests can run without installing HA.
 This must be imported before any custom_components imports.
+
+When real HA is available (e.g. via pytest-homeassistant-custom-component),
+mocking is skipped to avoid conflicts.
 """
 
 import sys
 import types
 from unittest.mock import MagicMock
+
+
+def _is_real_ha_available() -> bool:
+    """Check if real homeassistant package is available (not our mock)."""
+    try:
+        # If homeassistant is already in sys.modules, check if it's real
+        if "homeassistant" in sys.modules:
+            ha = sys.modules["homeassistant"]
+            # Real HA has a __version__ attribute
+            return hasattr(ha, "__version__")
+        # Try importing to see if it's installed
+        import importlib
+
+        spec = importlib.util.find_spec("homeassistant")
+        return spec is not None
+    except Exception:
+        return False
 
 
 def _setup_ha_mock():
@@ -188,5 +208,6 @@ def _setup_ha_mock():
     )
 
 
-# Must run before any custom_components imports
-_setup_ha_mock()
+# Must run before any custom_components imports, but only when real HA is not installed
+if not _is_real_ha_available():
+    _setup_ha_mock()

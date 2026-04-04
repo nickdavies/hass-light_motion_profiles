@@ -1,5 +1,4 @@
 import logging
-import asyncio
 from datetime import timedelta, datetime
 from typing import Mapping, List, Set, Any, TypeVar, Generic, Dict, Callable
 
@@ -490,14 +489,13 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
                 f"calling service {LIGHT_DOMAIN}.{service}, {service_data} for "
                 f"automation {self._attr_name}"
             )
-            asyncio.run_coroutine_threadsafe(
+            self.hass.async_create_task(
                 self.hass.services.async_call(
                     LIGHT_DOMAIN,
                     service,
                     service_data,
                     blocking=False,
-                ),
-                self.hass.loop,
+                )
             )
 
         return True

@@ -18,7 +18,7 @@ jobs:
       - name: Ruff lint
         run: ruff check tests/ custom_components/
       - name: Ruff format
-        run: ruff format --check tests/
+        run: ruff format --check tests/ tests_integration/
 
   test:
     runs-on: ubuntu-latest
@@ -28,5 +28,16 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pytest voluptuous
-      - name: Run tests
+      - name: Run unit tests
         run: python -m pytest tests/ -v
+
+  integration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest pytest-homeassistant-custom-component voluptuous tzdata
+      - name: Run integration tests
+        run: python -m pytest tests_integration/ -v
