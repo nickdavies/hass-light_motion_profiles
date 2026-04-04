@@ -104,12 +104,14 @@ class TestLightProfile:
             "enabled": True,
             "icon": "mdi:lightbulb",
             "brightness_pct": 100,
+            "color_temp_kelvin": 3000,
             "transition": 5,
         }
         lp = LightProfile.from_yaml(data)
         assert lp.enabled is True
         assert lp.icon == "mdi:lightbulb"
         assert lp.brightness_pct == 100
+        assert lp.color_temp_kelvin == 3000
         assert lp.transition == 5
 
     def test_from_yaml_no_fields(self):
@@ -117,6 +119,7 @@ class TestLightProfile:
         assert lp.enabled is None
         assert lp.icon is None
         assert lp.brightness_pct is None
+        assert lp.color_temp_kelvin is None
         assert lp.transition is None
 
     def test_from_yaml_partial(self):
@@ -126,3 +129,42 @@ class TestLightProfile:
         assert lp.brightness_pct == 50
         assert lp.icon is None
         assert lp.transition is None
+        assert lp.color_temp_kelvin is None
+
+    def test_from_yaml_color_temp_kelvin_static(self):
+        data = {"enabled": True, "color_temp_kelvin": 2700}
+        lp = LightProfile.from_yaml(data)
+        assert lp.color_temp_kelvin == 2700
+
+    def test_from_yaml_color_temp_kelvin_entity(self):
+        data = {
+            "enabled": True,
+            "color_temp_kelvin": {"entity_id": "input_number.color_temp"},
+        }
+        lp = LightProfile.from_yaml(data)
+        assert lp.color_temp_kelvin == {"entity_id": "input_number.color_temp"}
+
+    def test_from_yaml_brightness_entity(self):
+        data = {
+            "enabled": True,
+            "brightness_pct": {"entity_id": "input_number.brightness"},
+        }
+        lp = LightProfile.from_yaml(data)
+        assert lp.brightness_pct == {"entity_id": "input_number.brightness"}
+
+    def test_from_yaml_transition_entity(self):
+        data = {"transition": {"entity_id": "input_number.transition"}}
+        lp = LightProfile.from_yaml(data)
+        assert lp.transition == {"entity_id": "input_number.transition"}
+
+    def test_from_yaml_mixed_static_and_entity(self):
+        data = {
+            "enabled": True,
+            "brightness_pct": {"entity_id": "input_number.brightness"},
+            "color_temp_kelvin": 3000,
+            "transition": 5,
+        }
+        lp = LightProfile.from_yaml(data)
+        assert lp.brightness_pct == {"entity_id": "input_number.brightness"}
+        assert lp.color_temp_kelvin == 3000
+        assert lp.transition == 5

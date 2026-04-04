@@ -91,6 +91,7 @@ def _setup_ha_mock():
             "string": str,
             "boolean": bool,
             "positive_int": int,
+            "entity_id": str,
         },
     )
 
@@ -132,6 +133,7 @@ def _setup_ha_mock():
         "homeassistant.components.light",
         {
             "ATTR_BRIGHTNESS_PCT": "brightness_pct",
+            "ATTR_COLOR_TEMP_KELVIN": "color_temp_kelvin",
             "ATTR_TRANSITION": "transition",
             "DOMAIN": "light",
         },

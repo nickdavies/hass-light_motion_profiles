@@ -4,6 +4,7 @@ from typing import Mapping, List, Set, Any, TypeVar, Generic, Dict, Callable
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS_PCT,
+    ATTR_COLOR_TEMP_KELVIN,
     ATTR_TRANSITION,
     DOMAIN as LIGHT_DOMAIN,
 )
@@ -401,14 +402,19 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
         self._killswitch_entity = light_config.killswitch_entity.full
         self._light_rule_entity = light_config.light_rule_entity.full
 
+        self._light_entity = light_config.lights.entity
+        self._states = {r.state_name: r.state for r in light_config.rules}
+
+        # Collect entity IDs from entity-sourced light properties for subscriptions
+        property_entity_ids: list[str] = []
+        for state in self._states.values():
+            property_entity_ids.extend(state.get_entity_ids())
+
         self._dependent_entities = [
             self._global_killswitch_entity,
             self._killswitch_entity,
             self._light_rule_entity,
-        ]
-
-        self._light_entity = light_config.lights.entity
-        self._states = {r.state_name: r.state for r in light_config.rules}
+        ] + list(set(property_entity_ids))
         self._icons = {
             r.state_name: r.state.icon.value
             for r in light_config.rules
@@ -464,14 +470,20 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
             if target.enable is None:
                 if light_state.state == STATE_ON:
                     service = SERVICE_TURN_ON
-            elif target.enable.value is True:
-                service = SERVICE_TURN_ON
-            elif target.enable.value is False:
-                service = SERVICE_TURN_OFF
             else:
-                _LOGGER.warning(
-                    "Got unexpected value for target.enable " f"'{target.enable}'"
-                )
+                enable_val = target.enable.resolve(self.hass)
+                if enable_val is True or enable_val == "True" or enable_val == "true":
+                    service = SERVICE_TURN_ON
+                elif (
+                    enable_val is False
+                    or enable_val == "False"
+                    or enable_val == "false"
+                ):
+                    service = SERVICE_TURN_OFF
+                else:
+                    _LOGGER.warning(
+                        f"Got unexpected value for target.enable '{enable_val}'"
+                    )
 
             service_data = {
                 ATTR_ENTITY_ID: self._light_entity,
@@ -480,10 +492,18 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
                 return True
             elif service == SERVICE_TURN_ON:
                 if target.brightness:
-                    service_data[ATTR_BRIGHTNESS_PCT] = target.brightness.value
+                    brightness_val = target.brightness.resolve(self.hass)
+                    if brightness_val is not None:
+                        service_data[ATTR_BRIGHTNESS_PCT] = int(float(brightness_val))
+                if target.color_temp:
+                    color_val = target.color_temp.resolve(self.hass)
+                    if color_val is not None:
+                        service_data[ATTR_COLOR_TEMP_KELVIN] = int(float(color_val))
 
             if target.transition is not None:
-                service_data[ATTR_TRANSITION] = target.transition.value
+                transition_val = target.transition.resolve(self.hass)
+                if transition_val is not None:
+                    service_data[ATTR_TRANSITION] = int(float(transition_val))
 
             _LOGGER.warning(
                 f"calling service {LIGHT_DOMAIN}.{service}, {service_data} for "

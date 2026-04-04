@@ -3,6 +3,7 @@ This file contains only the "pure" structs for the config without
 any templating in them at all. This is all fully resolved after
 templates are applied
 """
+
 from dataclasses import dataclass
 from typing import List, Mapping, Any, Set
 
@@ -138,17 +139,27 @@ class LightRule:
         )
 
 
+def _value_or_entity(validator: Any) -> vol.Any:
+    """Accept either a plain value or an entity reference dict."""
+    return vol.Any(
+        validator,
+        vol.Schema({vol.Required("entity_id"): cv.entity_id}),
+    )
+
+
 @dataclass
 class LightProfile:
     FIELD_ENABLED = "enabled"
     FIELD_ICON = "icon"
     FIELD_BRIGHTNESS = "brightness_pct"
+    FIELD_COLOR_TEMP_KELVIN = "color_temp_kelvin"
     FIELD_TRANSITION = "transition"
 
     enabled: bool | None
     icon: str | None
-    brightness_pct: int | None
-    transition: int | None
+    brightness_pct: int | Mapping[str, str] | None
+    color_temp_kelvin: int | Mapping[str, str] | None
+    transition: int | Mapping[str, str] | None
 
     @classmethod
     def from_yaml(
@@ -159,6 +170,7 @@ class LightProfile:
             enabled=data.get(cls.FIELD_ENABLED),
             icon=data.get(cls.FIELD_ICON),
             brightness_pct=data.get(cls.FIELD_BRIGHTNESS),
+            color_temp_kelvin=data.get(cls.FIELD_COLOR_TEMP_KELVIN),
             transition=data.get(cls.FIELD_TRANSITION),
         )
 
@@ -168,7 +180,10 @@ class LightProfile:
             {
                 vol.Optional(cls.FIELD_ENABLED): cv.boolean,
                 vol.Optional(cls.FIELD_ICON): cv.string,
-                vol.Optional(cls.FIELD_BRIGHTNESS): cv.positive_int,
-                vol.Optional(cls.FIELD_TRANSITION): cv.positive_int,
+                vol.Optional(cls.FIELD_BRIGHTNESS): _value_or_entity(cv.positive_int),
+                vol.Optional(cls.FIELD_COLOR_TEMP_KELVIN): _value_or_entity(
+                    cv.positive_int
+                ),
+                vol.Optional(cls.FIELD_TRANSITION): _value_or_entity(cv.positive_int),
             }
         )
