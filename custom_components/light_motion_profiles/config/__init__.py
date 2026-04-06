@@ -131,7 +131,14 @@ class RawConfig:
     @classmethod
     def validate_config(cls, data: Mapping[str, Any]) -> Mapping[str, Any]:
         try:
-            cls.from_yaml(data)
+            raw_config = cls.from_yaml(data)
+
+            # Late import to avoid circular dependency between config
+            # and datatypes modules.
+            from custom_components.light_motion_profiles import build_domains
+            from custom_components.light_motion_profiles.datatypes import Config
+
+            Config(raw_config, build_domains())
             return data
         except vol.Invalid as e:
             raise e
