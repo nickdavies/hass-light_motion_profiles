@@ -500,7 +500,15 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
                     if color_val is not None:
                         service_data[ATTR_COLOR_TEMP_KELVIN] = int(float(color_val))
 
-            if target.transition is not None:
+            # Use color_temp_transition when color_temp is in the service call
+            if (
+                target.color_temp_transition is not None
+                and ATTR_COLOR_TEMP_KELVIN in service_data
+            ):
+                ct_transition_val = target.color_temp_transition.resolve(self.hass)
+                if ct_transition_val is not None:
+                    service_data[ATTR_TRANSITION] = int(float(ct_transition_val))
+            elif target.transition is not None:
                 transition_val = target.transition.resolve(self.hass)
                 if transition_val is not None:
                     service_data[ATTR_TRANSITION] = int(float(transition_val))

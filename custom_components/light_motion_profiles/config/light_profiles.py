@@ -154,12 +154,14 @@ class LightProfile:
     FIELD_BRIGHTNESS = "brightness_pct"
     FIELD_COLOR_TEMP_KELVIN = "color_temp_kelvin"
     FIELD_TRANSITION = "transition"
+    FIELD_COLOR_TEMP_TRANSITION = "color_temp_transition"
 
     enabled: bool | None
     icon: str | None
     brightness_pct: int | Mapping[str, str] | None
     color_temp_kelvin: int | Mapping[str, str] | None
     transition: int | Mapping[str, str] | None
+    color_temp_transition: int | Mapping[str, str] | None
 
     @classmethod
     def from_yaml(
@@ -172,6 +174,7 @@ class LightProfile:
             brightness_pct=data.get(cls.FIELD_BRIGHTNESS),
             color_temp_kelvin=data.get(cls.FIELD_COLOR_TEMP_KELVIN),
             transition=data.get(cls.FIELD_TRANSITION),
+            color_temp_transition=data.get(cls.FIELD_COLOR_TEMP_TRANSITION),
         )
 
     @classmethod
@@ -185,5 +188,8 @@ class LightProfile:
                     cv.positive_int
                 ),
                 vol.Optional(cls.FIELD_TRANSITION): _value_or_entity(cv.positive_int),
+                vol.Optional(cls.FIELD_COLOR_TEMP_TRANSITION): _value_or_entity(
+                    cv.positive_int
+                ),
             }
         )

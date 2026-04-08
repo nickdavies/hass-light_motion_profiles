@@ -262,6 +262,7 @@ class TestLightState:
             brightness_pct=75,
             color_temp_kelvin=3000,
             transition=2,
+            color_temp_transition=None,
         )
         ls = LightState("full", raw, settings)
         assert ls.source_profile == "full"
@@ -279,6 +280,7 @@ class TestLightState:
             brightness_pct=None,
             color_temp_kelvin=None,
             transition=None,
+            color_temp_transition=None,
         )
         ls = LightState("noop", raw, settings)
         assert ls.enable is None
@@ -286,6 +288,7 @@ class TestLightState:
         assert ls.icon is None
         assert ls.color_temp is None
         assert ls.transition.value == 0
+        assert ls.color_temp_transition is None
 
     def test_color_not_set_when_not_configured(self):
         """When color_temp_kelvin is not specified, LightState.color must be None.
@@ -300,6 +303,7 @@ class TestLightState:
             brightness_pct=100,
             color_temp_kelvin=None,
             transition=None,
+            color_temp_transition=None,
         )
         ls = LightState("no_color", raw, settings)
         assert ls.color_temp is None
@@ -312,6 +316,7 @@ class TestLightState:
             brightness_pct=None,
             color_temp_kelvin=2700,
             transition=None,
+            color_temp_transition=None,
         )
         ls = LightState("warm", raw, settings)
         assert ls.color_temp is not None
@@ -326,6 +331,7 @@ class TestLightState:
             brightness_pct=None,
             color_temp_kelvin={"entity_id": "input_number.color_temp"},
             transition=None,
+            color_temp_transition=None,
         )
         ls = LightState("adaptive_color", raw, settings)
         assert ls.color_temp is not None
@@ -340,6 +346,7 @@ class TestLightState:
             brightness_pct={"entity_id": "input_number.brightness"},
             color_temp_kelvin=None,
             transition=None,
+            color_temp_transition=None,
         )
         ls = LightState("adaptive_bright", raw, settings)
         assert ls.brightness is not None
@@ -353,6 +360,7 @@ class TestLightState:
             brightness_pct=None,
             color_temp_kelvin=None,
             transition={"entity_id": "input_number.transition"},
+            color_temp_transition=None,
         )
         ls = LightState("adaptive_transition", raw, settings)
         assert ls.transition.entity_id == "input_number.transition"
@@ -365,12 +373,14 @@ class TestLightState:
             brightness_pct={"entity_id": "input_number.brightness"},
             color_temp_kelvin={"entity_id": "input_number.color_temp"},
             transition={"entity_id": "input_number.transition"},
+            color_temp_transition={"entity_id": "input_number.ct_transition"},
         )
         ls = LightState("all_entities", raw, settings)
         ids = ls.get_entity_ids()
         assert "input_number.brightness" in ids
         assert "input_number.color_temp" in ids
         assert "input_number.transition" in ids
+        assert "input_number.ct_transition" in ids
 
     def test_get_entity_ids_empty_for_static(self):
         settings = _make_settings()
@@ -380,6 +390,7 @@ class TestLightState:
             brightness_pct=75,
             color_temp_kelvin=2700,
             transition=5,
+            color_temp_transition=None,
         )
         ls = LightState("static", raw, settings)
         assert ls.get_entity_ids() == []

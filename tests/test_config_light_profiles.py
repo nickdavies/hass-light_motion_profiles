@@ -106,6 +106,7 @@ class TestLightProfile:
             "brightness_pct": 100,
             "color_temp_kelvin": 3000,
             "transition": 5,
+            "color_temp_transition": 30,
         }
         lp = LightProfile.from_yaml(data)
         assert lp.enabled is True
@@ -113,6 +114,7 @@ class TestLightProfile:
         assert lp.brightness_pct == 100
         assert lp.color_temp_kelvin == 3000
         assert lp.transition == 5
+        assert lp.color_temp_transition == 30
 
     def test_from_yaml_no_fields(self):
         lp = LightProfile.from_yaml({})
@@ -121,6 +123,7 @@ class TestLightProfile:
         assert lp.brightness_pct is None
         assert lp.color_temp_kelvin is None
         assert lp.transition is None
+        assert lp.color_temp_transition is None
 
     def test_from_yaml_partial(self):
         data = {"enabled": False, "brightness_pct": 50}
@@ -130,6 +133,7 @@ class TestLightProfile:
         assert lp.icon is None
         assert lp.transition is None
         assert lp.color_temp_kelvin is None
+        assert lp.color_temp_transition is None
 
     def test_from_yaml_color_temp_kelvin_static(self):
         data = {"enabled": True, "color_temp_kelvin": 2700}
@@ -168,3 +172,23 @@ class TestLightProfile:
         assert lp.brightness_pct == {"entity_id": "input_number.brightness"}
         assert lp.color_temp_kelvin == 3000
         assert lp.transition == 5
+
+    def test_from_yaml_color_temp_transition_static(self):
+        data = {
+            "enabled": True,
+            "color_temp_kelvin": 3000,
+            "color_temp_transition": 45,
+        }
+        lp = LightProfile.from_yaml(data)
+        assert lp.color_temp_transition == 45
+
+    def test_from_yaml_color_temp_transition_entity(self):
+        data = {
+            "enabled": True,
+            "color_temp_kelvin": {"entity_id": "input_number.color_temp"},
+            "color_temp_transition": {"entity_id": "input_number.ct_transition"},
+        }
+        lp = LightProfile.from_yaml(data)
+        assert lp.color_temp_transition == {
+            "entity_id": "input_number.ct_transition"
+        }

@@ -54,6 +54,7 @@ class LightState:
     brightness: DataSource | None
     color_temp: DataSource | None
     transition: DataSource
+    color_temp_transition: DataSource | None
 
     def __init__(self, profile_name: str, config: RawLightProfile, settings: Settings):
         self._settings = settings
@@ -68,11 +69,20 @@ class LightState:
         self.transition = (
             transition_source if transition_source is not None else DataSource(value=0)
         )
+        self.color_temp_transition = _make_data_source(
+            config.color_temp_transition, int
+        )
 
     def get_entity_ids(self) -> List[str]:
         """Collect entity IDs from all DataSource fields for subscriptions."""
         ids: List[str] = []
-        for field in (self.enable, self.brightness, self.color_temp, self.transition):
+        for field in (
+            self.enable,
+            self.brightness,
+            self.color_temp,
+            self.transition,
+            self.color_temp_transition,
+        ):
             if field is not None:
                 ids.extend(field.get_entity_ids())
         return ids
