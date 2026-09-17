@@ -23,7 +23,7 @@ class Match:
 
     @classmethod
     def vol(cls) -> vol.Schema:
-        return vol.Schema(vol.Required(vol.Any(cv.string, unique_list(cv.string))))
+        return vol.Schema(vol.Any(cv.string, unique_list(cv.string)))
 
 
 @dataclass
