@@ -1,16 +1,25 @@
+"""Building a Lovelace dashboard from code.
+
+VENDORED, byte for byte, in both hass-light_motion_profiles and
+hass-plant_care. Change it in both or in neither, until it is its own package.
+"""
+
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Sequence, Dict, Mapping, Any, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Any
 
-
+from homeassistant.components.lovelace import _register_panel
 from homeassistant.components.lovelace.const import MODE_YAML
 from homeassistant.components.lovelace.dashboard import LovelaceConfig
-from homeassistant.components.lovelace import _register_panel
 from homeassistant.helpers.json import json_bytes, json_fragment
 
 DBT = Mapping[str, Any]
 
 ENTITY = "entity"
 NAME = "name"
+ICON = "icon"
 
 
 class Renderable(ABC):
@@ -20,16 +29,31 @@ class Renderable(ABC):
 
 
 class View(Renderable):
-    def __init__(self, title: str, cards: Sequence[Renderable]) -> None:
+    def __init__(
+        self,
+        title: str,
+        cards: Sequence[Renderable],
+        panel: bool = True,
+        path: str | None = None,
+        icon: str | None = None,
+    ) -> None:
         self.title = title
         self.cards = cards
+        self.panel = panel
+        self.path = path
+        self.icon = icon
 
     def render(self) -> DBT:
-        return {
-            "panel": True,
+        config: dict[str, Any] = {
+            "panel": self.panel,
             "title": self.title,
             "cards": [card.render() for card in self.cards],
         }
+        if self.path is not None:
+            config["path"] = self.path
+        if self.icon is not None:
+            config["icon"] = self.icon
+        return config
 
 
 class VerticalStackCard(Renderable):
@@ -57,19 +81,19 @@ class HorizontalStackCard(Renderable):
 class EntitiesCard(Renderable):
     def __init__(
         self,
-        entities: Sequence[str | Dict[str, str]],
+        entities: Sequence[str | dict[str, str]],
         title: str | None = None,
     ) -> None:
         self.title = title
-        self.entities = []
+        self.entities: list[dict[str, str]] = []
         for entity in entities:
             if isinstance(entity, dict):
                 self.entities.append(entity)
             else:
-                self.entities.append({"entity": entity})
+                self.entities.append({ENTITY: entity})
 
     def render(self) -> DBT:
-        config = {
+        config: dict[str, Any] = {
             "type": "entities",
             "entities": self.entities,
         }
@@ -77,6 +101,52 @@ class EntitiesCard(Renderable):
         if self.title is not None:
             config["title"] = self.title
 
+        return config
+
+
+def divider() -> dict[str, str]:
+    """A separator row inside an EntitiesCard."""
+    return {"type": "divider"}
+
+
+class MarkdownCard(Renderable):
+    """Free text, for a card that needs to explain itself."""
+
+    def __init__(self, content: str, title: str | None = None) -> None:
+        self.content = content
+        self.title = title
+
+    def render(self) -> DBT:
+        config: dict[str, Any] = {"type": "markdown", "content": self.content}
+        if self.title is not None:
+            config["title"] = self.title
+        return config
+
+
+class HistoryGraphCard(Renderable):
+    def __init__(
+        self,
+        entities: Sequence[str | dict[str, str]],
+        title: str | None = None,
+        hours_to_show: int = 24,
+    ) -> None:
+        self.title = title
+        self.hours_to_show = hours_to_show
+        self.entities: list[dict[str, str]] = []
+        for entity in entities:
+            if isinstance(entity, dict):
+                self.entities.append(entity)
+            else:
+                self.entities.append({ENTITY: entity})
+
+    def render(self) -> DBT:
+        config: dict[str, Any] = {
+            "type": "history-graph",
+            "hours_to_show": self.hours_to_show,
+            "entities": self.entities,
+        }
+        if self.title is not None:
+            config["title"] = self.title
         return config
 
 
@@ -108,12 +178,10 @@ class GeneratedDashboard(ABC):
 
     @property
     def show_in_sidebar(self) -> bool:
-        """Determines if the dashboard is listed on the main sidebar"""
         return True
 
     @property
     def require_admin(self) -> bool:
-        """Determines if the dashboard requires admin to access"""
         return False
 
     @property
@@ -152,7 +220,6 @@ class ManualLovelaceYAML(LovelaceConfig):
 
     @property
     def mode(self) -> str:
-        """Return mode of the lovelace config."""
         return str(self.config["mode"])
 
     async def async_get_info(self) -> Mapping[str, str | int]:
@@ -169,7 +236,7 @@ class ManualLovelaceYAML(LovelaceConfig):
         config = await self.async_load(force)
         return json_fragment(json_bytes(config))
 
-    async def _load_config(self, force: bool) -> Tuple[bool, DBT]:
+    async def _load_config(self, force: bool) -> tuple[bool, DBT]:
         if self._cache is not None:
             return False, self._cache
 
