@@ -51,6 +51,9 @@ class Domains:
     # This entity represents the final profile that is currently applied to the light
     light_automation: Domain
 
+    # This entity publishes a presence rule for systems outside this integration
+    presence_output: Domain
+
 
 @dataclass
 class InputEntity:

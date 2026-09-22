@@ -47,6 +47,7 @@ def build_domains() -> Domains:
         room_occupancy=Domain.SENSOR,
         light_rule=Domain.SENSOR,
         light_automation=Domain.SENSOR,
+        presence_output=Domain.BINARY_SENSOR,
     )
 
 
@@ -91,7 +92,9 @@ async def async_setup(hass: HomeAssistant, whole_config: Mapping[str, Any]) -> b
     )
 
     if config.settings.dashboard is not None:
-        PresenceDebugDashboard(config.users_groups).add_to_hass(hass)
+        PresenceDebugDashboard(
+            config.users_groups, config.presence_outputs
+        ).add_to_hass(hass)
         MotionDebugDashboard(config).add_to_hass(hass)
 
     # Return boolean to indicate that initialization was successful.

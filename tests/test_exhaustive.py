@@ -34,6 +34,7 @@ def _make_domains():
         room_occupancy=Domain.SENSOR,
         light_rule=Domain.SENSOR,
         light_automation=Domain.SENSOR,
+        presence_output=Domain.BINARY_SENSOR,
     )
 
 

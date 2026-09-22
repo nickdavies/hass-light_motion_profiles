@@ -1,10 +1,16 @@
 from dataclasses import dataclass
 from typing import Any, Callable, List, Mapping, Set, Dict, Iterator
 
-from ..config import RawConfig, LightConfig as RawLightConfig
+from ..config import (
+    RawConfig,
+    LightConfig as RawLightConfig,
+    PresenceOutputConfig as RawPresenceOutputConfig,
+)
 from ..config.light_profiles import (
     LightRule as RawLightRule,
     LightProfile as RawLightProfile,
+    Match as RawMatch,
+    UserState as RawUserState,
 )
 from ..config.validators import InvalidConfigError
 from ..config.users_groups import UserConfig as RawUserConfig
@@ -17,7 +23,7 @@ from ..config.settings import (
 )
 
 from .entity import InputEntity, Domains as Domains, Entity as Entity
-from .match import RuleMatch
+from .match import MatchUser, MatchUserSingle, RuleMatch
 from .source import DataSource
 
 
@@ -376,11 +382,122 @@ class UsersGroups:
         seen.pop()
 
 
+class PresenceOutput:
+    """A presence rule published as a binary sensor.
+
+    This is how the presence model leaves this integration: anything else in
+    Home Assistant can ask "is anyone in the house asleep" by reading one
+    entity, without knowing who is a guest, who is away, or how a group's
+    states combine.
+    """
+
+    STATE_AWAKE = "awake"
+    STATE_ASLEEP = "asleep"
+
+    # Per group, two outputs need no config: the two ways a shared thing
+    # usually answers to a group. `any_awake` is "prefer awake" (on while
+    # anyone is up), `any_asleep` is "prefer asleep" (hold off while anyone
+    # sleeps).
+    AUTOMATIC_STATES = (STATE_AWAKE, STATE_ASLEEP)
+
+    name: str
+    conditions: List[MatchUser]
+    match_any: bool
+
+    def __init__(
+        self,
+        name: str,
+        conditions: List[MatchUser],
+        match_any: bool,
+        settings: Settings,
+    ) -> None:
+        self._settings = settings
+        self.name = name
+        self.conditions = conditions
+        self.match_any = match_any
+
+    @classmethod
+    def from_raw(
+        cls, name: str, config: RawPresenceOutputConfig, settings: Settings
+    ) -> "PresenceOutput":
+        return cls(
+            name=name,
+            conditions=[MatchUser.from_raw(us) for us in config.user_state],
+            match_any=config.match == RawPresenceOutputConfig.MATCH_ANY,
+            settings=settings,
+        )
+
+    @classmethod
+    def automatic_name(cls, group: str, state: str) -> str:
+        return f"{group}_any_{state}"
+
+    @classmethod
+    def automatic(cls, group: str, state: str, settings: Settings) -> "PresenceOutput":
+        condition = RawUserState(
+            user=group,
+            state_any=RawMatch(state),
+            state_all=None,
+            state_exact=None,
+        )
+        return cls(
+            name=cls.automatic_name(group, state),
+            conditions=[MatchUser.from_raw(condition)],
+            match_any=False,
+            settings=settings,
+        )
+
+    @property
+    def entity(self) -> Entity:
+        return Entity(
+            domain=self._settings.domains.presence_output,
+            name=f"presence_output_{self.name}",
+        )
+
+    def get_users(self) -> Set[str]:
+        return {c.user for c in self.conditions if isinstance(c, MatchUserSingle)}
+
+    def match(self, user_states: Mapping[str, str | Set[str]]) -> bool:
+        results = (c.match(user_states) for c in self.conditions)
+        return any(results) if self.match_any else all(results)
+
+
+def _build_presence_outputs(
+    configured: Mapping[str, RawPresenceOutputConfig],
+    users_groups: UsersGroups,
+    settings: Settings,
+) -> Dict[str, PresenceOutput]:
+    outputs: Dict[str, PresenceOutput] = {}
+    states = settings.users_groups.valid_person_states
+    for group in users_groups.groups:
+        for state in PresenceOutput.AUTOMATIC_STATES:
+            # Only for states this house actually uses: an output that can
+            # never turn on would look like a rule that is working.
+            if state in states:
+                output = PresenceOutput.automatic(group, state, settings)
+                outputs[output.name] = output
+
+    for name, config in configured.items():
+        if name in outputs:
+            raise InvalidConfigError(
+                f"Presence output '{name}' has the same name as an automatic "
+                "output for a group; pick another name"
+            )
+        output = PresenceOutput.from_raw(name, config, settings)
+        for user in output.get_users():
+            if user not in users_groups.users and user not in users_groups.groups:
+                raise InvalidConfigError(
+                    f"Presence output '{name}' refers to unknown user or group '{user}'"
+                )
+        outputs[name] = output
+    return outputs
+
+
 @dataclass
 class Config:
     settings: Settings
     users_groups: UsersGroups
     lights: Mapping[str, LightGroup]
+    presence_outputs: Mapping[str, PresenceOutput]
 
     def __init__(self, raw_config: RawConfig, domains: Domains):
         self.settings = Settings(raw_config.settings, domains)
@@ -403,6 +520,9 @@ class Config:
             )
             for name, light_config in raw_config.light_configs.items()
         }
+        self.presence_outputs = _build_presence_outputs(
+            raw_config.presence_outputs, self.users_groups, self.settings
+        )
 
     @property
     def global_killswitch_entity(self) -> Entity:

@@ -68,6 +68,30 @@ groups:
     - guest_1
     - guest_2
 
+# Presence outputs publish a presence rule as a binary sensor, so anything else
+# in Home Assistant (another integration, an automation) can ask a question of
+# the presence model by reading one entity. Each is
+# binary_sensor.presence_output_<name>, and it is unknown while any presence it
+# reads is unavailable.
+#
+# Every group gets two without any config:
+#   <group>_any_awake   on while any present member is awake ("prefer awake")
+#   <group>_any_asleep  on while any present member is asleep ("prefer asleep")
+# Absent members are ignored, and winddown counts as neither.
+#
+# Configured outputs use the same user_state conditions as light rules, all of
+# which must hold unless `match: any`.
+presence_outputs:
+  house_empty:
+    user_state:
+      - user: everyone
+        state_exact: absent
+  primary_up_guests_asleep:
+    user_state:
+      - user: primary
+        state_any: awake
+      - user: guests
+        state_any: asleep
 
 light_profiles:
   enabled:
