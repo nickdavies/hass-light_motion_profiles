@@ -59,6 +59,11 @@ TEST_CONFIG: dict[str, Any] = {
         "groups": {
             "everyone": ["user_a", "user_b"],
         },
+        "presence_outputs": {
+            "house_empty": {
+                "user_state": [{"user": "everyone", "state_exact": "absent"}],
+            },
+        },
         "light_profiles": {
             "enabled": {
                 "enabled": True,
@@ -223,6 +228,11 @@ USER_B_PRESENCE = "sensor.person_presence_user_b"
 USER_B_EXISTS = "switch.person_user_b_exists"
 
 GROUP_PRESENCE = "sensor.group_presence_everyone"
+
+# Presence outputs
+EVERYONE_ANY_AWAKE = "binary_sensor.presence_output_everyone_any_awake"
+EVERYONE_ANY_ASLEEP = "binary_sensor.presence_output_everyone_any_asleep"
+HOUSE_EMPTY = "binary_sensor.presence_output_house_empty"
 
 # Simple room
 SIMPLE_ROOM_MOTION = "binary_sensor.simple_room_motion"

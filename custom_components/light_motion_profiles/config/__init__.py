@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import voluptuous as vol
 from homeassistant.helpers import config_validation as cv
 
-from .light_profiles import LightRule, LightProfile
+from .light_profiles import LightRule, LightProfile, UserState
 from .light_templates import AllTemplates
 from .settings import AllSettings
 from .users_groups import UserConfig
@@ -79,6 +79,44 @@ class LightConfig:
 
 
 @dataclass
+class PresenceOutputConfig:
+    """A named presence rule, published as a binary sensor for other systems.
+
+    Reuses the `user_state` conditions light rules are written with, so an
+    output means exactly what the same conditions would mean in a rule.
+    """
+
+    FIELD_MATCH = "match"
+    FIELD_USER_STATE = "user_state"
+
+    MATCH_ALL = "all"
+    MATCH_ANY = "any"
+
+    match: str
+    user_state: List[UserState]
+
+    @classmethod
+    def from_yaml(cls, data: Mapping[str, Any]) -> "PresenceOutputConfig":
+        return cls(
+            match=data.get(cls.FIELD_MATCH, cls.MATCH_ALL),
+            user_state=[UserState.from_yaml(us) for us in data[cls.FIELD_USER_STATE]],
+        )
+
+    @classmethod
+    def vol(cls) -> vol.Schema:
+        return vol.Schema(
+            {
+                vol.Optional(cls.FIELD_MATCH, default=cls.MATCH_ALL): vol.In(
+                    [cls.MATCH_ALL, cls.MATCH_ANY]
+                ),
+                vol.Required(cls.FIELD_USER_STATE): vol.All(
+                    [UserState.vol()], vol.Length(min=1)
+                ),
+            }
+        )
+
+
+@dataclass
 class RawConfig:
     FIELD_TEMPLATES = "templates"
     FIELD_LIGHT_PROFILES = "light_profiles"
@@ -86,6 +124,7 @@ class RawConfig:
     FIELD_USERS = "users"
     FIELD_GROUPS = "groups"
     FIELD_SETTINGS = "settings"
+    FIELD_PRESENCE_OUTPUTS = "presence_outputs"
 
     light_profiles: Mapping[str, LightProfile]
     light_configs: Mapping[str, LightConfig]
@@ -94,6 +133,8 @@ class RawConfig:
     groups: Mapping[str, Set[str]]
 
     settings: AllSettings
+
+    presence_outputs: Mapping[str, PresenceOutputConfig]
 
     @classmethod
     def from_yaml(cls, data: Mapping[str, Any]) -> "RawConfig":
@@ -113,6 +154,10 @@ class RawConfig:
             },
             groups={name: set(users) for name, users in data[cls.FIELD_GROUPS].items()},
             settings=AllSettings.from_yaml(data[cls.FIELD_SETTINGS]),
+            presence_outputs={
+                name: PresenceOutputConfig.from_yaml(value)
+                for name, value in data.get(cls.FIELD_PRESENCE_OUTPUTS, {}).items()
+            },
         )
 
     @classmethod
@@ -125,6 +170,9 @@ class RawConfig:
                 cls.FIELD_USERS: {cv.string: UserConfig.vol()},
                 cls.FIELD_GROUPS: {cv.string: unique_list(cv.string)},
                 cls.FIELD_SETTINGS: AllSettings.vol(),
+                vol.Optional(cls.FIELD_PRESENCE_OUTPUTS): {
+                    cv.string: PresenceOutputConfig.vol()
+                },
             }
         )
 

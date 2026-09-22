@@ -1,6 +1,6 @@
 import logging
 
-from typing import List, Dict, Set, Sequence
+from typing import List, Dict, Mapping, Set, Sequence
 
 from ..lovelace import (
     DBT,
@@ -14,15 +14,20 @@ from ..lovelace import (
     View,
 )
 
-from ..datatypes import Config, UsersGroups
+from ..datatypes import Config, PresenceOutput, UsersGroups
 
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class PresenceDebugDashboard(GeneratedDashboard):
-    def __init__(self, config: UsersGroups) -> None:
+    def __init__(
+        self,
+        config: UsersGroups,
+        presence_outputs: Mapping[str, PresenceOutput] | None = None,
+    ) -> None:
         self._ug_config = config
+        self._presence_outputs = presence_outputs or {}
 
     @property
     def title(self) -> str:
@@ -40,6 +45,10 @@ class PresenceDebugDashboard(GeneratedDashboard):
             entities.append(group.presence_entity.full)
 
         return EntitiesCard(entities, title="User and Group presence")
+
+    def _build_presence_outputs(self) -> Renderable:
+        entities = [o.entity.full for o in self._presence_outputs.values()]
+        return EntitiesCard(entities, title="Presence outputs")
 
     def _build_per_user_overrides(self) -> Renderable:
         cards: List[Renderable] = []
@@ -85,6 +94,11 @@ class PresenceDebugDashboard(GeneratedDashboard):
                     VerticalStackCard(
                         cards=[
                             self._build_user_group_presence(),
+                            *(
+                                [self._build_presence_outputs()]
+                                if self._presence_outputs
+                                else []
+                            ),
                             self._build_per_user_overrides(),
                         ]
                     )
