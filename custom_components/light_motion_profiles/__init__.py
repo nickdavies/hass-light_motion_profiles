@@ -87,12 +87,22 @@ async def async_setup(hass: HomeAssistant, whole_config: Mapping[str, Any]) -> b
         whole_config,
     )
 
-    if config.settings.dashboard is not None:
-        # Imported here rather than at the top so the unit tests and
-        # config_validation.py can import this package without lovelace_codegen,
-        # a separate custom component, being installed beside it.
-        from .dashboards import MotionDebugDashboard, PresenceDebugDashboard
+    # Imported here rather than at the top so the unit tests and
+    # config_validation.py can import this package without lovelace_codegen,
+    # a separate custom component, being installed beside it.
+    from custom_components.lovelace_codegen import register_fragments
 
+    from .dashboards import (
+        MotionDebugDashboard,
+        PresenceDebugDashboard,
+        all_fragments,
+    )
+
+    # Always, not only with the debug dashboards: the fragments are how other
+    # dashboards show these cards, whether or not the full debug pages exist.
+    register_fragments(hass, DOMAIN, all_fragments(config))
+
+    if config.settings.dashboard is not None:
         PresenceDebugDashboard(
             config.users_groups, config.presence_outputs
         ).add_to_hass(hass)
