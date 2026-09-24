@@ -93,6 +93,7 @@ async def async_setup(hass: HomeAssistant, whole_config: Mapping[str, Any]) -> b
     from custom_components.lovelace_codegen import register_fragments
 
     from .dashboards import (
+        DebugDashboard,
         MotionDebugDashboard,
         PresenceDebugDashboard,
         all_fragments,
@@ -100,13 +101,14 @@ async def async_setup(hass: HomeAssistant, whole_config: Mapping[str, Any]) -> b
 
     # Always, not only with the debug dashboards: the fragments are how other
     # dashboards show these cards, whether or not the full debug pages exist.
-    register_fragments(hass, DOMAIN, all_fragments(config))
+    register_fragments(hass, DOMAIN, all_fragments(hass, config))
 
     if config.settings.dashboard is not None:
         PresenceDebugDashboard(
             config.users_groups, config.presence_outputs
         ).add_to_hass(hass)
         MotionDebugDashboard(config).add_to_hass(hass)
+        DebugDashboard(hass, config).add_to_hass(hass)
 
     # Return boolean to indicate that initialization was successful.
     return True
