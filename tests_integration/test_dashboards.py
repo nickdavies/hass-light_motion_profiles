@@ -13,13 +13,18 @@ from homeassistant.loader import DATA_CUSTOM_COMPONENTS
 from homeassistant.setup import async_setup_component
 
 from .conftest import (
+    BEDSIDE_AUTOMATION,
     BEDSIDE_LIGHT,
     BEDSIDE_MOTION,
     DOMAIN,
+    GROUP_PRESENCE,
     PERSON_USER_A,
+    SIMPLE_ROOM_AUTOMATION,
     SIMPLE_ROOM_LIGHT,
     SIMPLE_ROOM_MOTION,
     TEST_CONFIG,
+    USER_A_PRESENCE,
+    USER_B_PRESENCE,
     _ensure_custom_components_path,
 )
 
@@ -60,7 +65,9 @@ async def with_dashboards(
     return hass
 
 
-@pytest.mark.parametrize("url_path", ["presence-debug", "motion-debug"])
+@pytest.mark.parametrize(
+    "url_path", ["presence-debug", "motion-debug", "lovelace-debug"]
+)
 async def test_the_dashboard_registers_and_renders(
     with_dashboards: HomeAssistant, url_path: str
 ) -> None:
@@ -77,7 +84,7 @@ async def test_every_entity_on_the_dashboards_exists(
     """A card naming an entity the component never created renders as a blank
     row nobody notices."""
     missing = set()
-    for url_path in ("presence-debug", "motion-debug"):
+    for url_path in ("presence-debug", "motion-debug", "lovelace-debug"):
         dashboard = with_dashboards.data["lovelace"].dashboards[url_path]
         for entity_id in _entity_ids(await dashboard.async_load(False)):
             if with_dashboards.states.get(entity_id) is None:
@@ -114,6 +121,8 @@ def _all_fragment_renders(hass: HomeAssistant) -> list[Any]:
         _render(hass, "motion_inputs"),
         *(_render(hass, "user", user=user) for user in users),
         *(_render(hass, "light_config", light=light) for light in lights),
+        *(_render(hass, "manual_lights", light=light) for light in lights),
+        *(_render(hass, "group", group=g) for g in TEST_CONFIG[DOMAIN]["groups"]),
     ]
 
 
@@ -121,9 +130,11 @@ async def test_fragments_are_registered_without_the_dashboards(
     integration: HomeAssistant,
 ) -> None:
     assert _registry(integration).names(DOMAIN) == [
+        "group",
         "killswitches",
         "light_automation_states",
         "light_config",
+        "manual_lights",
         "motion_inputs",
         "presence_outputs",
         "user",
@@ -181,6 +192,8 @@ async def test_the_dashboards_are_made_of_the_fragments(
         ("user", {"user": "nobody"}),
         ("user", {}),
         ("light_config", {"light": "attic"}),
+        ("manual_lights", {"light": "attic"}),
+        ("group", {"group": "nobody"}),
         ("killswitches", {"light": "simple_room"}),
     ],
 )
@@ -210,3 +223,102 @@ async def test_a_fragment_over_the_websocket(
     assert msg["success"], msg
     assert msg["result"]["title"] == "bedside_lamp"
     assert BEDSIDE_LIGHT in _entity_ids(msg["result"])
+
+
+async def test_group_lists_its_members_in_user_order(
+    integration: HomeAssistant,
+) -> None:
+    card = _render(integration, "group", group="everyone")
+
+    assert card["title"] == "Everyone"
+    assert _entity_ids(card) == [GROUP_PRESENCE, USER_A_PRESENCE, USER_B_PRESENCE]
+
+
+async def test_manual_lights_lists_a_group_light_then_its_members(
+    integration: HomeAssistant,
+) -> None:
+    integration.states.async_set(
+        SIMPLE_ROOM_LIGHT,
+        "on",
+        {"entity_id": ["light.simple_room_a", "light.simple_room_b"]},
+    )
+
+    card = _render(integration, "manual_lights", light="simple_room")
+
+    assert _entity_ids(card) == [
+        SIMPLE_ROOM_LIGHT,
+        "light.simple_room_a",
+        "light.simple_room_b",
+    ]
+
+
+async def test_manual_lights_on_a_single_light(integration: HomeAssistant) -> None:
+    assert _entity_ids(_render(integration, "manual_lights", light="bedside_lamp")) == [
+        BEDSIDE_LIGHT
+    ]
+
+
+# --- The merged Debug dashboard ---
+
+
+async def _debug(hass: HomeAssistant) -> dict[str, Any]:
+    dashboard = hass.data["lovelace"].dashboards["lovelace-debug"]
+    return await dashboard.async_load(False)
+
+
+async def test_debug_has_a_grid_of_tiles_for_each_kind(
+    with_dashboards: HomeAssistant,
+) -> None:
+    main = (await _debug(with_dashboards))["views"][0]
+    grids = main["cards"][0]["cards"]
+
+    assert main["path"] == "main"
+    assert [g["title"] for g in grids] == ["People", "Groups", "Lights"]
+    assert {g["columns"] for g in grids} == {4}
+    assert [t["entity"] for t in grids[0]["cards"]] == [
+        USER_A_PRESENCE,
+        USER_B_PRESENCE,
+    ]
+    assert [t["entity"] for t in grids[1]["cards"]] == [GROUP_PRESENCE]
+    assert [t["entity"] for t in grids[2]["cards"]] == [
+        SIMPLE_ROOM_AUTOMATION,
+        BEDSIDE_AUTOMATION,
+    ]
+
+
+async def test_every_tile_opens_a_subview_that_leads_back(
+    with_dashboards: HomeAssistant,
+) -> None:
+    views = (await _debug(with_dashboards))["views"]
+    subviews = {f"/lovelace-debug/{v['path']}": v for v in views[1:]}
+
+    targets = [
+        tile["tap_action"]["navigation_path"]
+        for grid in views[0]["cards"][0]["cards"]
+        for tile in grid["cards"]
+    ]
+    assert sorted(targets) == sorted(subviews)
+    for view in subviews.values():
+        assert view["subview"] is True
+        assert view["back_path"] == "/lovelace-debug/main"
+
+
+async def test_the_subviews_are_made_of_the_fragments(
+    with_dashboards: HomeAssistant,
+) -> None:
+    views = {v["path"]: v for v in (await _debug(with_dashboards))["views"]}
+
+    def cards(path: str) -> list[Any]:
+        return views[path]["cards"][0]["cards"]
+
+    hass = with_dashboards
+    assert cards("user-user_a") == [_render(hass, "user", user="user_a")]
+    assert cards("group-everyone") == [
+        _render(hass, "group", group="everyone"),
+        _render(hass, "user", user="user_a"),
+        _render(hass, "user", user="user_b"),
+    ]
+    assert cards("light-simple_room") == [
+        _render(hass, "light_config", light="simple_room"),
+        _render(hass, "manual_lights", light="simple_room"),
+    ]

@@ -11,6 +11,8 @@ import logging
 from typing import List, Dict, Mapping, Set, Sequence
 
 import voluptuous as vol
+from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.core import HomeAssistant
 
 from custom_components.lovelace_codegen import (
     DBT,
@@ -19,14 +21,24 @@ from custom_components.lovelace_codegen import (
     ENTITY,
     Fragment,
     GeneratedDashboard,
+    GridCard,
     NAME,
     Params,
     Renderable,
+    TileCard,
     VerticalStackCard,
     View,
+    navigate,
 )
 
-from ..datatypes import Config, LightGroup, PresenceOutput, User, UsersGroups
+from ..datatypes import (
+    Config,
+    Group,
+    LightGroup,
+    PresenceOutput,
+    User,
+    UsersGroups,
+)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -80,7 +92,32 @@ def user_card(name: str, user: User) -> EntitiesCard:
         user.presence_entity.full,
     ]
 
-    return EntitiesCard(title=name.replace("_", " ").capitalize(), entities=entities)
+    return EntitiesCard(title=display_name(name), entities=entities)
+
+
+def display_name(name: str) -> str:
+    """A config key as a title: `guest_1` is "Guest 1"."""
+    return name.replace("_", " ").capitalize()
+
+
+def group_members(ug_config: UsersGroups, group: Group) -> list[str]:
+    """A group's members, in the order the users are configured."""
+    return [name for name in ug_config.users if name in group.members]
+
+
+def group_card(ug_config: UsersGroups, name: str, group: Group) -> EntitiesCard:
+    """A group's presence, then the final presence of each member it is made of."""
+    entities: List[str | Dict[str, str]] = [
+        {ENTITY: group.presence_entity.full, NAME: display_name(name)}
+    ]
+    entities += [
+        {
+            ENTITY: ug_config.users[member].presence_entity.full,
+            NAME: display_name(member),
+        }
+        for member in group_members(ug_config, group)
+    ]
+    return EntitiesCard(title=display_name(name), entities=entities)
 
 
 def presence_fragments(
@@ -103,6 +140,14 @@ def presence_fragments(
             lambda params: user_card(params["user"], ug_config.users[params["user"]]),
             description="Every input to one user's presence",
             schema=vol.Schema({vol.Required("user"): vol.In(list(ug_config.users))}),
+        ),
+        Fragment(
+            "group",
+            lambda params: group_card(
+                ug_config, params["group"], ug_config.groups[params["group"]]
+            ),
+            description="One group's presence and each member's",
+            schema=vol.Schema({vol.Required("group"): vol.In(list(ug_config.groups))}),
         ),
     ]
 
@@ -229,9 +274,32 @@ def motion_inputs_card(config: Config) -> EntitiesCard:
     )
 
 
-def motion_fragments(config: Config) -> list[Fragment]:
+def manual_lights_card(
+    hass: HomeAssistant, name: str, light: LightGroup
+) -> EntitiesCard:
+    """The light a config drives, then each light in it if it is a group.
+
+    Members come from the group's `entity_id` attribute as it is when the card is
+    built, so a light added to the group shows up on the next render.
+    """
+    group = light.lights.entity
+    state = hass.states.get(group)
+    members = state.attributes.get(ATTR_ENTITY_ID, []) if state is not None else []
+    if isinstance(members, str):
+        members = [members]
+    entities: List[str | Dict[str, str]] = [group]
+    entities += [member for member in members if member != group]
+    return EntitiesCard(title=f"{display_name(name)} lights", entities=entities)
+
+
+def motion_fragments(hass: HomeAssistant, config: Config) -> list[Fragment]:
     def light(params: Params) -> EntitiesCard:
         return light_config_card(params["light"], config.lights[params["light"]])
+
+    def manual_lights(params: Params) -> EntitiesCard:
+        return manual_lights_card(hass, params["light"], config.lights[params["light"]])
+
+    light_schema = vol.Schema({vol.Required("light"): vol.In(list(config.lights))})
 
     return [
         Fragment(
@@ -248,7 +316,13 @@ def motion_fragments(config: Config) -> list[Fragment]:
             "light_config",
             light,
             description="Every input to one light config's automation",
-            schema=vol.Schema({vol.Required("light"): vol.In(list(config.lights))}),
+            schema=light_schema,
+        ),
+        Fragment(
+            "manual_lights",
+            manual_lights,
+            description="The light one light config drives, and its members",
+            schema=light_schema,
         ),
         Fragment(
             "motion_inputs",
@@ -296,8 +370,137 @@ class MotionDebugDashboard(GeneratedDashboard):
         return rendered_dashboard
 
 
-def all_fragments(config: Config) -> list[Fragment]:
+def all_fragments(hass: HomeAssistant, config: Config) -> list[Fragment]:
     return [
         *presence_fragments(config.users_groups, config.presence_outputs),
-        *motion_fragments(config),
+        *motion_fragments(hass, config),
     ]
+
+
+# --- Everything, as one dashboard ---
+
+
+class DebugDashboard(GeneratedDashboard):
+    """People, groups and light configs as grids of tiles, each opening a
+    subview with that one's debug cards.
+
+    The tiles show live state: a user's presence sensor takes the icon
+    configured for its state, and a light config's automation sensor takes the
+    icon of the profile it is applying.
+    """
+
+    COLUMNS = 4
+
+    def __init__(self, hass: HomeAssistant, config: Config) -> None:
+        self._hass = hass
+        self._config = config
+
+    @property
+    def title(self) -> str:
+        return "Debug"
+
+    @property
+    def url_path(self) -> str:
+        return "lovelace-debug"
+
+    def _path(self, view: str) -> str:
+        return f"/{self.url_path}/{view}"
+
+    def _subview(self, title: str, path: str, cards: Sequence[Renderable]) -> View:
+        return View(
+            title=title,
+            path=path,
+            subview=True,
+            back_path=self._path("main"),
+            cards=[VerticalStackCard(cards=cards)],
+        )
+
+    def _tile(
+        self, entity: str, name: str, path: str, icon: str | None = None
+    ) -> TileCard:
+        return TileCard(
+            entity,
+            name=display_name(name),
+            icon=icon,
+            vertical=True,
+            tap_action=navigate(self._path(path)),
+        )
+
+    async def render(self) -> DBT:
+        ug = self._config.users_groups
+        lights = self._config.lights
+
+        main = View(
+            title=self.title,
+            path="main",
+            cards=[
+                VerticalStackCard(
+                    cards=[
+                        GridCard(
+                            [
+                                self._tile(
+                                    user.presence_entity.full, name, f"user-{name}"
+                                )
+                                for name, user in ug.users.items()
+                            ],
+                            columns=self.COLUMNS,
+                            title="People",
+                        ),
+                        GridCard(
+                            [
+                                self._tile(
+                                    group.presence_entity.full,
+                                    name,
+                                    f"group-{name}",
+                                    icon="mdi:account-group",
+                                )
+                                for name, group in ug.groups.items()
+                            ],
+                            columns=self.COLUMNS,
+                            title="Groups",
+                        ),
+                        GridCard(
+                            [
+                                self._tile(
+                                    light.light_automation_entity.full,
+                                    name,
+                                    f"light-{name}",
+                                )
+                                for name, light in lights.items()
+                            ],
+                            columns=self.COLUMNS,
+                            title="Lights",
+                        ),
+                    ]
+                )
+            ],
+        )
+
+        views = [main]
+        views += [
+            self._subview(display_name(name), f"user-{name}", [user_card(name, user)])
+            for name, user in ug.users.items()
+        ]
+        views += [
+            self._subview(
+                display_name(name),
+                f"group-{name}",
+                [
+                    group_card(ug, name, group),
+                    *(user_card(m, ug.users[m]) for m in group_members(ug, group)),
+                ],
+            )
+            for name, group in ug.groups.items()
+        ]
+        views += [
+            self._subview(
+                display_name(name),
+                f"light-{name}",
+                [
+                    light_config_card(name, light),
+                    manual_lights_card(self._hass, name, light),
+                ],
+            )
+            for name, light in lights.items()
+        ]
+        return Dashboard(views).render()
