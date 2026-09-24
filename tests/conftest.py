@@ -109,15 +109,6 @@ def _setup_ha_mock():
     # homeassistant.helpers.restore_state
     magic_module("homeassistant.helpers.restore_state")
 
-    # homeassistant.helpers.json
-    mock_module(
-        "homeassistant.helpers.json",
-        {
-            "json_bytes": MagicMock(),
-            "json_fragment": MagicMock(),
-        },
-    )
-
     # -- homeassistant.util --
     ha_util = mock_module("homeassistant.util")
     ha_util.__path__ = []
@@ -173,39 +164,6 @@ def _setup_ha_mock():
             "BinarySensorDeviceClass": MagicMock(),
             "BinarySensorEntity": MagicMock,
             "DOMAIN": "binary_sensor",
-        },
-    )
-
-    # homeassistant.components.lovelace
-    ha_lovelace = mock_module(
-        "homeassistant.components.lovelace",
-        {
-            "_register_panel": MagicMock(),
-        },
-    )
-    ha_lovelace.__path__ = []
-
-    mock_module(
-        "homeassistant.components.lovelace.const",
-        {
-            "MODE_YAML": "yaml",
-        },
-    )
-
-    # LovelaceConfig needs to be a real class (it's subclassed)
-    class _MockLovelaceConfig:
-        def __init__(self, hass, url_path, config):
-            self.hass = hass
-            self.url_path = url_path
-            self.config = config
-
-        def _config_updated(self):
-            pass
-
-    mock_module(
-        "homeassistant.components.lovelace.dashboard",
-        {
-            "LovelaceConfig": _MockLovelaceConfig,
         },
     )
 

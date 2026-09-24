@@ -4,6 +4,7 @@ Uses pytest-homeassistant-custom-component for realistic HA testing.
 """
 
 import pathlib
+import sys
 from typing import Any
 
 import pytest
@@ -289,6 +290,14 @@ async def flush(hass: HomeAssistant, rounds: int = 10) -> None:
         await hass.async_block_till_done()
 
 
+REPO_ROOT = pathlib.Path(__file__).parent.parent
+
+# The `lovelace_codegen` component the debug dashboards are built with. It is its
+# own repo, installed beside this one in Home Assistant; CI checks out the
+# version it tests against here.
+LOVELACE_CODEGEN = REPO_ROOT / ".deps" / "hass-lovelace_codegen"
+
+
 def _ensure_custom_components_path():
     """Ensure our project's custom_components is on the namespace path.
 
@@ -298,9 +307,15 @@ def _ensure_custom_components_path():
     """
     import custom_components
 
-    project_cc = str(pathlib.Path(__file__).parent.parent / "custom_components")
-    if project_cc not in custom_components.__path__:
-        custom_components.__path__.insert(0, project_cc)
+    for root in (REPO_ROOT, LOVELACE_CODEGEN):
+        path = str(root / "custom_components")
+        if path in custom_components.__path__:
+            continue
+        if isinstance(custom_components.__path__, list):
+            custom_components.__path__.insert(0, path)
+        else:
+            # A namespace package, whose path follows sys.path.
+            sys.path.insert(0, str(root))
 
 
 @pytest.fixture
