@@ -8,10 +8,6 @@ from homeassistant.const import (
     Platform,
 )
 
-from .dashboards import (
-    PresenceDebugDashboard,
-    MotionDebugDashboard,
-)
 from .config import RawConfig
 from .datatypes import Config
 from .datatypes.entity import Domain, Domains
@@ -92,6 +88,11 @@ async def async_setup(hass: HomeAssistant, whole_config: Mapping[str, Any]) -> b
     )
 
     if config.settings.dashboard is not None:
+        # Imported here rather than at the top so the unit tests and
+        # config_validation.py can import this package without lovelace_codegen,
+        # a separate custom component, being installed beside it.
+        from .dashboards import MotionDebugDashboard, PresenceDebugDashboard
+
         PresenceDebugDashboard(
             config.users_groups, config.presence_outputs
         ).add_to_hass(hass)

@@ -2,7 +2,7 @@ import logging
 
 from typing import List, Dict, Mapping, Set, Sequence
 
-from ..lovelace import (
+from custom_components.lovelace_codegen import (
     DBT,
     Dashboard,
     EntitiesCard,
