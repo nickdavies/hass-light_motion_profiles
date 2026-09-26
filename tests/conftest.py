@@ -92,6 +92,7 @@ def _setup_ha_mock():
             "boolean": bool,
             "positive_int": int,
             "entity_id": str,
+            "slug": str,
         },
     )
 
