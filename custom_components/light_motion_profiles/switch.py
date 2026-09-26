@@ -35,7 +35,9 @@ async def async_setup_platform(
     killswitch_icon = ks_settings.default_icon
     for light_config in config.lights.values():
         killswitches.append(
-            KillSwitch(light_config.killswitch_entity, icon=killswitch_icon)
+            KillSwitch(
+                light_config.killswitch_entity, icon=killswitch_icon, unique=True
+            )
         )
 
     async_add_entities(killswitches)
@@ -65,10 +67,12 @@ class GuestExistsSwitch(_BasicSwitch, RestoreEntity):
 
 
 class KillSwitch(_BasicSwitch, RestoreEntity):
-    def __init__(self, entity: Entity, icon: str | None) -> None:
+    def __init__(self, entity: Entity, icon: str | None, unique: bool = False) -> None:
         assert entity.domain.value == SWITCH_DOMAIN
         self._attr_name = entity.name
         self._attr_icon = icon
+        if unique:
+            self._attr_unique_id = entity.name
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""

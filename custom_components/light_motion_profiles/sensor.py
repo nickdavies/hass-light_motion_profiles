@@ -278,6 +278,7 @@ class RoomOccupancyEntity(CalculatedSensor[str], SensorEntity):
         assert entity.domain.value == SENSOR_DOMAIN
 
         self._attr_name = entity.name
+        self._attr_unique_id = entity.name
         self._no_motion_cb_cancel: Callable[[], None] | None = None
 
         self._motion_entity = config.motion_sensor_entity.entity
@@ -343,6 +344,7 @@ class LightRuleEntity(CalculatedSensor[str | None], SensorEntity):
         entity = config.light_rule_entity
         assert entity.domain.value == SENSOR_DOMAIN
         self._attr_name = entity.name
+        self._attr_unique_id = entity.name
 
         self._icons = {
             r.state_name: r.state.icon.value
@@ -397,6 +399,7 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
         entity = light_config.light_automation_entity
         assert entity.domain.value == SENSOR_DOMAIN
         self._attr_name = entity.name
+        self._attr_unique_id = entity.name
 
         self._global_killswitch_entity = global_ks.full
         self._killswitch_entity = light_config.killswitch_entity.full

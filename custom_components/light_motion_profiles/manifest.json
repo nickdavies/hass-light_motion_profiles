@@ -5,6 +5,7 @@
   "integration_type": "helper",
   "documentation": "https://github.com/nickdavies/ha-light-motion-profiles",
   "dependencies": ["lovelace_codegen"],
+  "after_dependencies": ["config_bridge"],
   "codeowners": ["@nickdavies"],
   "requirements": [],
   "iot_class": "calculated"
