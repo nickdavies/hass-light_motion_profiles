@@ -87,6 +87,12 @@ async def async_setup(hass: HomeAssistant, whole_config: Mapping[str, Any]) -> b
         whole_config,
     )
 
+    # Imported here, like the dashboards below, so the unit tests can import
+    # this package against their mock of Home Assistant.
+    from .claims import async_claim_entities
+
+    async_claim_entities(hass, config)
+
     # Imported here rather than at the top so the unit tests and
     # config_validation.py can import this package without lovelace_codegen,
     # a separate custom component, being installed beside it.
