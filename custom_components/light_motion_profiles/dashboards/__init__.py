@@ -8,14 +8,17 @@ these functions put together, so they cannot drift from the embedded copies.
 
 import logging
 
+from dataclasses import dataclass
 from typing import List, Dict, Mapping, Set, Sequence
 
 import voluptuous as vol
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
 
 from custom_components.lovelace_codegen import (
     DBT,
+    ButtonCard,
     Dashboard,
     EntitiesCard,
     ENTITY,
@@ -377,16 +380,77 @@ def all_fragments(hass: HomeAssistant, config: Config) -> list[Fragment]:
     ]
 
 
+# --- Rooms ---
+#
+# A light config's room is the Home Assistant area its `area:` key names.
+# The area registry supplies the room's name and icon, so they are set in one
+# place (the config bridge's areas, from homelab-data) and every dashboard
+# shows the same ones.
+
+UNASSIGNED = "unassigned"
+DEFAULT_ROOM_ICON = "mdi:texture-box"  # Home Assistant's own default for an area
+UNASSIGNED_ICON = "mdi:help-box-outline"
+MISSING_AREA_ICON = "mdi:alert-circle-outline"
+
+
+@dataclass(frozen=True)
+class Room:
+    key: str
+    name: str
+    icon: str
+    lights: list[str]
+
+
+def rooms(hass: HomeAssistant, lights: Mapping[str, LightGroup]) -> list[Room]:
+    """Light configs grouped by the area each names.
+
+    Rooms are sorted by name, and configs within one keep their configured
+    order. An area the registry doesn't have still gets its room, named after
+    the id with a warning icon, so a typo shows on the dashboard rather than
+    hiding the config. Configs with no `area` come last, under "Unassigned".
+    """
+    areas = ar.async_get(hass)
+    by_area: dict[str, list[str]] = {}
+    unassigned: list[str] = []
+    for name, light in lights.items():
+        if light.area is None:
+            unassigned.append(name)
+        else:
+            by_area.setdefault(light.area, []).append(name)
+
+    found = []
+    for area_id, names in by_area.items():
+        area = areas.async_get_area(area_id)
+        if area is None:
+            _LOGGER.warning(
+                "Light configs %s name area %r, which doesn't exist",
+                ", ".join(names),
+                area_id,
+            )
+            found.append(Room(area_id, display_name(area_id), MISSING_AREA_ICON, names))
+        else:
+            found.append(
+                Room(area.id, area.name, area.icon or DEFAULT_ROOM_ICON, names)
+            )
+    found.sort(key=lambda room: room.name.lower())
+    if unassigned:
+        found.append(Room(UNASSIGNED, "Unassigned", UNASSIGNED_ICON, unassigned))
+    return found
+
+
 # --- Everything, as one dashboard ---
 
 
 class DebugDashboard(GeneratedDashboard):
-    """People, groups and light configs as grids of tiles, each opening a
-    subview with that one's debug cards.
+    """People and groups as grids of tiles, each opening a subview with that
+    one's debug cards, then rooms, each opening a subview of its light configs.
 
     The tiles show live state: a user's presence sensor takes the icon
     configured for its state, and a light config's automation sensor takes the
     icon of the profile it is applying.
+
+    Room names and icons are read from the area registry when the dashboard is
+    first rendered, so a change to areas shows after Home Assistant restarts.
     """
 
     COLUMNS = 4
@@ -406,12 +470,18 @@ class DebugDashboard(GeneratedDashboard):
     def _path(self, view: str) -> str:
         return f"/{self.url_path}/{view}"
 
-    def _subview(self, title: str, path: str, cards: Sequence[Renderable]) -> View:
+    def _subview(
+        self,
+        title: str,
+        path: str,
+        cards: Sequence[Renderable],
+        back: str = "main",
+    ) -> View:
         return View(
             title=title,
             path=path,
             subview=True,
-            back_path=self._path("main"),
+            back_path=self._path(back),
             cards=[VerticalStackCard(cards=cards)],
         )
 
@@ -429,6 +499,7 @@ class DebugDashboard(GeneratedDashboard):
     async def render(self) -> DBT:
         ug = self._config.users_groups
         lights = self._config.lights
+        by_room = rooms(self._hass, lights)
 
         main = View(
             title=self.title,
@@ -461,15 +532,15 @@ class DebugDashboard(GeneratedDashboard):
                         ),
                         GridCard(
                             [
-                                self._tile(
-                                    light.light_automation_entity.full,
-                                    name,
-                                    f"light-{name}",
+                                ButtonCard(
+                                    room.name,
+                                    room.icon,
+                                    tap_action=navigate(self._path(f"room-{room.key}")),
                                 )
-                                for name, light in lights.items()
+                                for room in by_room
                             ],
                             columns=self.COLUMNS,
-                            title="Lights",
+                            title="Rooms",
                         ),
                     ]
                 )
@@ -492,15 +563,46 @@ class DebugDashboard(GeneratedDashboard):
             )
             for name, group in ug.groups.items()
         ]
-        views += [
-            self._subview(
-                display_name(name),
-                f"light-{name}",
-                [
-                    light_config_card(name, light),
-                    manual_lights_card(self._hass, name, light),
-                ],
+        for room in by_room:
+            views.append(
+                self._subview(
+                    room.name,
+                    f"room-{room.key}",
+                    [
+                        GridCard(
+                            [
+                                self._tile(
+                                    lights[name].light_automation_entity.full,
+                                    name,
+                                    f"light-{name}",
+                                )
+                                for name in room.lights
+                            ],
+                            columns=self.COLUMNS,
+                        ),
+                        EntitiesCard(
+                            [
+                                {
+                                    ENTITY: lights[name].light_automation_entity.full,
+                                    NAME: display_name(name),
+                                }
+                                for name in room.lights
+                            ],
+                            title="Profiles",
+                        ),
+                    ],
+                )
             )
-            for name, light in lights.items()
-        ]
+            views += [
+                self._subview(
+                    display_name(name),
+                    f"light-{name}",
+                    [
+                        light_config_card(name, lights[name]),
+                        manual_lights_card(self._hass, name, lights[name]),
+                    ],
+                    back=f"room-{room.key}",
+                )
+                for name in room.lights
+            ]
         return Dashboard(views).render()
