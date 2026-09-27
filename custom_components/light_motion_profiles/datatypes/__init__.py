@@ -117,6 +117,7 @@ class LightGroup:
     occupancy_sensors: InputEntity | List[InputEntity]
     occupancy_timeout: DataSource
     rules: List[LightRule]
+    area: str | None
 
     def __init__(
         self,
@@ -136,6 +137,7 @@ class LightGroup:
             else InputEntity(config.occupancy_sensors)
         )
         self.occupancy_timeout = DataSource(config.occupancy_timeout)
+        self.area = config.area
 
         self.rules = [
             LightRule(r, light_profiles=light_profiles, settings=self._settings)

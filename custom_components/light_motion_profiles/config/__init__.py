@@ -18,6 +18,7 @@ class LightConfig:
     FIELD_OCCUPANCY_TIMEOUT = "occupancy_timeout"
     FIELD_USER = "user"
     FIELD_LIGHT_PROFILE_RULES = "light_profile_rules"
+    FIELD_AREA = "area"
 
     FIELD_TEMPLATE = "template"
     FIELD_VALUES = "values"
@@ -27,6 +28,8 @@ class LightConfig:
     occupancy_timeout: str | int
     user: str
     light_profile_rules: List[LightRule]
+    area: str | None = None
+    """The id of the Home Assistant area the lights are in."""
 
     @classmethod
     def from_yaml(
@@ -51,6 +54,7 @@ class LightConfig:
             occupancy_timeout=data[cls.FIELD_OCCUPANCY_TIMEOUT],
             user=data[cls.FIELD_USER],
             light_profile_rules=light_profile_rules,
+            area=data.get(cls.FIELD_AREA),
         )
 
     @classmethod
@@ -63,6 +67,7 @@ class LightConfig:
                 ),
                 vol.Required(cls.FIELD_OCCUPANCY_TIMEOUT): cv.positive_int,
                 vol.Required(cls.FIELD_USER): cv.string,
+                vol.Optional(cls.FIELD_AREA): cv.slug,
                 vol.Required(cls.FIELD_LIGHT_PROFILE_RULES): [
                     vol.Any(
                         LightRule.vol(),
