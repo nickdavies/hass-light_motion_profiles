@@ -7,6 +7,7 @@ from custom_components.light_motion_profiles.config.settings import (
     RoomSettings,
     UserGroupSettings,
     DashboardSettings,
+    RefreshSettings,
     AllSettings,
 )
 
@@ -69,6 +70,19 @@ class TestDashboardSettings:
         assert s is not None
 
 
+class TestRefreshSettings:
+    def test_from_yaml_defaults(self):
+        for data in (None, {}):
+            s = RefreshSettings.from_yaml(data)
+            assert s.spread == 300
+            assert s.transition == 10
+
+    def test_from_yaml(self):
+        s = RefreshSettings.from_yaml({"spread": 60, "transition": 0})
+        assert s.spread == 60
+        assert s.transition == 0
+
+
 class TestAllSettings:
     def test_from_yaml_with_dashboard(self):
         data = {
@@ -89,3 +103,4 @@ class TestAllSettings:
         }
         s = AllSettings.from_yaml(data)
         assert s.dashboard is None
+        assert s.refresh == RefreshSettings.from_yaml(None)

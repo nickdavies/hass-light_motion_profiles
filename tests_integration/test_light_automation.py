@@ -23,8 +23,13 @@ from .conftest import (
     SIMPLE_ROOM_LIGHT,
     BEDSIDE_LIGHT,
     BEDSIDE_RULE,
+    COLOR_TEMP,
     GLOBAL_KS,
+    LIGHT_MIN_KELVIN,
+    REFRESH_SPREAD,
+    REFRESH_TRANSITION,
     flush,
+    run_refreshes,
     set_select,
     set_switch,
 )
@@ -168,6 +173,189 @@ async def test_global_killswitch_blocks(
 
     auto_state = hass.states.get(SIMPLE_ROOM_AUTOMATION).state
     assert "(global_ks)" in auto_state
+
+
+# --- Only commands that change the light ---
+
+
+async def test_off_light_not_turned_off_again(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    """A rule change to an off profile sends nothing to a light already off."""
+    await set_select(hass, USER_A_STATE, "asleep")
+    await flush(hass)
+    assert last_call(light_service_calls, SIMPLE_ROOM_LIGHT).service == "turn_off"
+    count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(PERSON_USER_A, "not_home")
+    await set_select(hass, USER_A_OVERRIDE, "auto")
+    await flush(hass)
+
+    from .conftest import SIMPLE_ROOM_RULE
+
+    assert hass.states.get(SIMPLE_ROOM_RULE).state == "absent"
+    assert len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT)) == count
+
+
+async def test_off_light_turned_on_by_rule_change(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    """A rule change still turns on a light that is off."""
+    await set_select(hass, USER_A_STATE, "asleep")
+    await flush(hass)
+    await set_select(hass, USER_A_STATE, "awake")
+    await flush(hass)
+
+    call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
+    assert call.service == "turn_on"
+    assert call.data.get("brightness_pct") == 100
+
+
+async def test_unchanged_light_not_sent_again(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    """Re-applying the profile a light already has sends nothing."""
+    count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    # Releasing the killswitch re-applies the current rule.
+    await set_switch(hass, SIMPLE_ROOM_KS, True)
+    await flush(hass)
+    await set_switch(hass, SIMPLE_ROOM_KS, False)
+    await flush(hass)
+
+    assert len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT)) == count
+
+
+# --- Refreshes: an entity a profile reads changes ---
+
+
+async def test_refresh_spread_across_light_configs(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    """Each light config refreshes at its own offset, with the refresh fade."""
+    simple_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+    bedside_count = len(find_calls(light_service_calls, BEDSIDE_LIGHT))
+
+    hass.states.async_set(COLOR_TEMP, "3500")
+    await flush(hass)
+
+    simple_calls = find_calls(light_service_calls, SIMPLE_ROOM_LIGHT)[simple_count:]
+    assert len(simple_calls) == 1
+    assert simple_calls[0].data.get("color_temp_kelvin") == 3500
+    assert simple_calls[0].data.get("transition") == REFRESH_TRANSITION
+    assert len(find_calls(light_service_calls, BEDSIDE_LIGHT)) == bedside_count
+
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=REFRESH_SPREAD / 2 + 1)
+    )
+    await flush(hass)
+
+    bedside_calls = find_calls(light_service_calls, BEDSIDE_LIGHT)[bedside_count:]
+    assert len(bedside_calls) == 1
+    assert bedside_calls[0].data.get("color_temp_kelvin") == 3500
+    assert bedside_calls[0].data.get("transition") == REFRESH_TRANSITION
+
+
+async def test_refresh_reads_latest_value(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    """Changes while a refresh is pending collapse into one, with the last value."""
+    count = len(find_calls(light_service_calls, BEDSIDE_LIGHT))
+
+    hass.states.async_set(COLOR_TEMP, "3500")
+    await flush(hass)
+    hass.states.async_set(COLOR_TEMP, "4000")
+    await run_refreshes(hass)
+
+    calls = find_calls(light_service_calls, BEDSIDE_LIGHT)[count:]
+    assert len(calls) == 1
+    assert calls[0].data.get("color_temp_kelvin") == 4000
+
+
+async def test_refresh_skips_off_lights(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    """A refresh never turns a light on, nor sends an off light anything."""
+    await set_select(hass, USER_A_STATE, "asleep")
+    await flush(hass)
+    count = len(light_service_calls)
+
+    hass.states.async_set(COLOR_TEMP, "3500")
+    await run_refreshes(hass)
+
+    assert len(light_service_calls) == count
+
+
+async def test_refresh_never_turns_a_light_off(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    """A light turned on by hand under an off profile is left on by a refresh."""
+    await set_select(hass, USER_A_STATE, "asleep")
+    await flush(hass)
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, "on")
+    count = len(light_service_calls)
+
+    hass.states.async_set(COLOR_TEMP, "3500")
+    await run_refreshes(hass)
+
+    assert len(light_service_calls) == count
+
+
+async def test_refresh_skips_unchanged_mireds(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    """A change too small for the light to show (same mired) sends nothing."""
+    count = len(light_service_calls)
+
+    # 3000K and 3001K are both 333 mireds.
+    hass.states.async_set(COLOR_TEMP, "3001")
+    await run_refreshes(hass)
+
+    assert len(light_service_calls) == count
+
+
+async def test_refresh_compares_within_light_range(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    """Targets below the light's range match the light at its minimum."""
+    hass.states.async_set(COLOR_TEMP, str(LIGHT_MIN_KELVIN - 500))
+    await run_refreshes(hass)
+    count = len(light_service_calls)
+
+    hass.states.async_set(COLOR_TEMP, str(LIGHT_MIN_KELVIN - 800))
+    await run_refreshes(hass)
+
+    assert len(light_service_calls) == count
+
+
+async def test_rule_change_cancels_pending_refresh(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    """A rule change applies the new value at once; the refresh is dropped."""
+    count = len(find_calls(light_service_calls, BEDSIDE_LIGHT))
+
+    hass.states.async_set(COLOR_TEMP, "3500")
+    await set_select(hass, USER_A_STATE, "winddown")
+    await flush(hass)
+    await run_refreshes(hass)
+
+    calls = find_calls(light_service_calls, BEDSIDE_LIGHT)[count:]
+    assert len(calls) == 1
+    assert calls[0].data.get("brightness_pct") == 25
+    assert calls[0].data.get("color_temp_kelvin") == 3500
+
+
+async def test_killswitch_blocks_refresh(
+    hass: HomeAssistant, integration, light_service_calls
+):
+    await set_switch(hass, GLOBAL_KS, True)
+    await flush(hass)
+    count = len(light_service_calls)
+
+    hass.states.async_set(COLOR_TEMP, "3500")
+    await run_refreshes(hass)
+
+    assert len(light_service_calls) == count
 
 
 # --- Full day lifecycle ---
