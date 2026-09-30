@@ -5,14 +5,30 @@ Uses pytest-homeassistant-custom-component for realistic HA testing.
 
 import pathlib
 import sys
+from datetime import timedelta
 from typing import Any
 
 import pytest
-from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
-from homeassistant.const import SERVICE_TURN_ON, SERVICE_TURN_OFF
+from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
+    ATTR_BRIGHTNESS_PCT,
+    ATTR_COLOR_TEMP_KELVIN,
+    ATTR_MAX_COLOR_TEMP_KELVIN,
+    ATTR_MIN_COLOR_TEMP_KELVIN,
+    DOMAIN as LIGHT_DOMAIN,
+)
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    SERVICE_TURN_ON,
+    SERVICE_TURN_OFF,
+    STATE_OFF,
+    STATE_ON,
+)
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.loader import DATA_CUSTOM_COMPONENTS
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 
 DOMAIN = "light_motion_profiles"
@@ -83,11 +99,13 @@ TEST_CONFIG: dict[str, Any] = {
                 "enabled": True,
                 "brightness_pct": 100,
                 "icon": "mdi:weather-sunny",
+                "color_temp_kelvin": {"entity_id": "sensor.color_temp_kelvin"},
             },
             "dim": {
                 "enabled": True,
                 "brightness_pct": 25,
                 "icon": "mdi:lamp",
+                "color_temp_kelvin": {"entity_id": "sensor.color_temp_kelvin"},
             },
             "extra_dim": {
                 "enabled": True,
@@ -253,6 +271,17 @@ BEDSIDE_LIGHT = "light.bedside"
 # Global
 GLOBAL_KS = "switch.killswitch_motion_global"
 
+# The color temperature source the "on" profiles read, as circadian lighting
+# would provide, and the range every mock light reports.
+COLOR_TEMP = "sensor.color_temp_kelvin"
+LIGHT_MIN_KELVIN = 2000
+LIGHT_MAX_KELVIN = 6500
+
+# The refresh settings' defaults, which TEST_CONFIG leaves in place. With two
+# light configs, simple_room refreshes at once and bedside_lamp half way in.
+REFRESH_SPREAD = 300
+REFRESH_TRANSITION = 10
+
 # Tracking entity
 PERSON_USER_A = "person.user_a"
 
@@ -290,6 +319,14 @@ async def flush(hass: HomeAssistant, rounds: int = 10) -> None:
         await hass.async_block_till_done()
 
 
+async def run_refreshes(hass: HomeAssistant) -> None:
+    """Advance past the refresh spread, so every pending refresh runs."""
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=REFRESH_SPREAD + 1)
+    )
+    await flush(hass)
+
+
 REPO_ROOT = pathlib.Path(__file__).parent.parent
 
 # The `lovelace_codegen` component the debug dashboards are built with. It is its
@@ -324,11 +361,35 @@ def _ensure_custom_components_path():
 
 @pytest.fixture
 async def light_service_calls(hass: HomeAssistant) -> list[ServiceCall]:
-    """Register mock light services and return list of captured calls."""
+    """Register mock light services and return list of captured calls.
+
+    Each call also sets the light's state, as a real light reports back: on or
+    off, brightness on HA's 0-255 scale, and color temperature clamped to the
+    light's range.
+    """
     calls: list[ServiceCall] = []
 
     async def mock_service(call: ServiceCall) -> None:
         calls.append(call)
+        entity_id = call.data[ATTR_ENTITY_ID]
+        if call.service == SERVICE_TURN_OFF:
+            hass.states.async_set(entity_id, STATE_OFF)
+            return
+
+        attrs: dict[str, Any] = {
+            ATTR_MIN_COLOR_TEMP_KELVIN: LIGHT_MIN_KELVIN,
+            ATTR_MAX_COLOR_TEMP_KELVIN: LIGHT_MAX_KELVIN,
+        }
+        current = hass.states.get(entity_id)
+        if current is not None and current.state == STATE_ON:
+            attrs.update(current.attributes)
+        if (pct := call.data.get(ATTR_BRIGHTNESS_PCT)) is not None:
+            attrs[ATTR_BRIGHTNESS] = round(pct * 255 / 100)
+        if (kelvin := call.data.get(ATTR_COLOR_TEMP_KELVIN)) is not None:
+            attrs[ATTR_COLOR_TEMP_KELVIN] = min(
+                max(kelvin, LIGHT_MIN_KELVIN), LIGHT_MAX_KELVIN
+            )
+        hass.states.async_set(entity_id, STATE_ON, attrs)
 
     hass.services.async_register(LIGHT_DOMAIN, SERVICE_TURN_ON, mock_service)
     hass.services.async_register(LIGHT_DOMAIN, SERVICE_TURN_OFF, mock_service)
@@ -348,6 +409,7 @@ async def integration(
     hass.states.async_set(BEDSIDE_MOTION, "on")
     hass.states.async_set(SIMPLE_ROOM_LIGHT, "off")
     hass.states.async_set(BEDSIDE_LIGHT, "off")
+    hass.states.async_set(COLOR_TEMP, "3000")
 
     # Allow HA to discover our custom component
     hass.data.pop(DATA_CUSTOM_COMPONENTS, None)

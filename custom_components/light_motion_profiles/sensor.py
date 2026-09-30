@@ -3,12 +3,16 @@ from datetime import timedelta, datetime
 from typing import Mapping, List, Set, Any, TypeVar, Generic, Dict, Callable
 
 from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
     ATTR_BRIGHTNESS_PCT,
     ATTR_COLOR_TEMP_KELVIN,
+    ATTR_MAX_COLOR_TEMP_KELVIN,
+    ATTR_MIN_COLOR_TEMP_KELVIN,
     ATTR_TRANSITION,
     DOMAIN as LIGHT_DOMAIN,
 )
 from homeassistant.util import dt as dt_util
+from homeassistant.util.color import color_temperature_kelvin_to_mired
 from homeassistant.const import (
     STATE_ON,
     STATE_OFF,
@@ -17,10 +21,11 @@ from homeassistant.const import (
     ATTR_ENTITY_ID,
 )
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_point_in_utc_time,
     async_track_state_change_event,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.components.sensor import SensorEntity, DOMAIN as SENSOR_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -33,6 +38,7 @@ from .datatypes import (
     UsersGroups,
     UserGroupSettings,
     LightGroup,
+    LightState,
     RoomSettings,
     Entity,
 )
@@ -76,7 +82,8 @@ async def async_setup_platform(
     # _LOGGER.warning(f"profile_icons={profile_icons}")
 
     light_sensors: List[SensorEntity] = []
-    for light_config in config.lights.values():
+    refresh = config.settings.refresh
+    for index, light_config in enumerate(config.lights.values()):
         light_sensors.append(
             RoomOccupancyEntity(
                 light_config,
@@ -93,6 +100,10 @@ async def async_setup_platform(
             LightAutomationEntity(
                 light_config,
                 config.global_killswitch_entity,
+                refresh_delay=timedelta(
+                    seconds=refresh.spread * index / len(config.lights)
+                ),
+                refresh_transition=refresh.transition,
             )
         )
 
@@ -394,7 +405,24 @@ class LightRuleEntity(CalculatedSensor[str | None], SensorEntity):
 
 
 class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
-    def __init__(self, light_config: LightGroup, global_ks: Entity) -> None:
+    """Drives a light config's lights to the profile its current rule picks.
+
+    The rule or a killswitch changing applies the profile at once. An entity
+    a profile reads changing (e.g. the circadian color temperature) instead
+    refreshes the lights `refresh_delay` later, fading over
+    `refresh_transition` seconds, and only if they are on and their profile
+    turns them on: a refresh adjusts lights, it never switches them.
+
+    Either way, a light is only sent a command that would change it.
+    """
+
+    def __init__(
+        self,
+        light_config: LightGroup,
+        global_ks: Entity,
+        refresh_delay: timedelta,
+        refresh_transition: int,
+    ) -> None:
         super().__init__()
         entity = light_config.light_automation_entity
         assert entity.domain.value == SENSOR_DOMAIN
@@ -408,21 +436,60 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
         self._light_entity = light_config.lights.entity
         self._states = {r.state_name: r.state for r in light_config.rules}
 
-        # Collect entity IDs from entity-sourced light properties for subscriptions
-        property_entity_ids: list[str] = []
+        # Entities read by entity-sourced light properties, which refresh
+        self._property_entities: Set[str] = set()
         for state in self._states.values():
-            property_entity_ids.extend(state.get_entity_ids())
+            self._property_entities.update(state.get_entity_ids())
 
         self._dependent_entities = [
             self._global_killswitch_entity,
             self._killswitch_entity,
             self._light_rule_entity,
-        ] + list(set(property_entity_ids))
+        ] + list(self._property_entities)
         self._icons = {
             r.state_name: r.state.icon.value
             for r in light_config.rules
             if r.state.icon is not None
         }
+
+        self._refresh_delay = refresh_delay
+        self._refresh_transition = refresh_transition
+        self._refresh_cancel: Callable[[], None] | None = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self._cancel_refresh)
+
+    def _force_update(self, event: Any) -> None:
+        if event is not None and event.data["entity_id"] in self._property_entities:
+            self._schedule_refresh()
+            return
+        # Applying the rule reads the properties too, so it covers any
+        # pending refresh.
+        self._cancel_refresh()
+        super()._force_update(event)
+
+    def _schedule_refresh(self) -> None:
+        # A pending refresh reads the latest values when it runs, so it covers
+        # this change too. Rescheduling would let a source that changes faster
+        # than the delay postpone it forever.
+        if self._refresh_cancel is None:
+            self._refresh_cancel = async_call_later(
+                self.hass, self._refresh_delay, self._refresh
+            )
+
+    def _cancel_refresh(self) -> None:
+        if self._refresh_cancel is not None:
+            self._refresh_cancel()
+            self._refresh_cancel = None
+
+    @callback
+    def _refresh(self, _now: datetime) -> None:
+        self._refresh_cancel = None
+        target = self._target(self.calculate_current_state())
+        if target is None or self._killswitch_suffix() is not None:
+            return
+        self._update_light(target, refresh=True)
 
     def calculate_current_state(self) -> str | None:
         rule_state = self.hass.states.get(self._light_rule_entity)
@@ -432,93 +499,132 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
 
         return rule_state.state
 
-    def _apply_state(self, light_rule: str | None) -> bool:
+    def _target(self, light_rule: str | None) -> LightState | None:
         if light_rule is None or light_rule == "unknown":
-            return False
-        target = self._states[light_rule]
+            return None
+        return self._states[light_rule]
 
-        base_display_name = (
-            target.source_profile if target.source_profile else light_rule
-        )
-        display_name = base_display_name
-        global_killswitch = self.hass.states.get(self._global_killswitch_entity)
-        change_light = True
-        if global_killswitch is not None and global_killswitch.state == STATE_ON:
-            _LOGGER.info(
-                "refusing to update {self._attr_name} because of global killswitch"
-            )
-            change_light = False
-            display_name = f"{base_display_name}(global_ks)"
-
+    def _killswitch_suffix(self) -> str | None:
+        """The display suffix of the killswitch holding the lights, if any."""
         killswitch = self.hass.states.get(self._killswitch_entity)
         if killswitch is not None and killswitch.state == STATE_ON:
+            return "(local_ks)"
+        global_killswitch = self.hass.states.get(self._global_killswitch_entity)
+        if global_killswitch is not None and global_killswitch.state == STATE_ON:
+            return "(global_ks)"
+        return None
+
+    def _apply_state(self, light_rule: str | None) -> bool:
+        target = self._target(light_rule)
+        if target is None:
+            return False
+
+        display_name = target.source_profile if target.source_profile else light_rule
+        killswitch = self._killswitch_suffix()
+        if killswitch is not None:
             _LOGGER.info(
-                "refusing to update {self._attr_name} because of local killswitch"
+                f"refusing to update {self._attr_name} because of {killswitch}"
             )
-            change_light = False
-            display_name = f"{base_display_name}(local_ks)"
+            display_name = f"{display_name}{killswitch}"
 
         # This sets the user facing attribute but doesn't change the light
         super()._apply_state(display_name)
 
+        if killswitch is None:
+            self._update_light(target, refresh=False)
+        return True
+
+    def _update_light(self, target: LightState, refresh: bool) -> None:
         light_state = self.hass.states.get(self._light_entity)
         if light_state is None:
-            pass
-            # _LOGGER.warning(
-            #     f"Requested to update light {self._light_entity} for automation "
-            #     f"{self._attr_name} but that light appears to not exists"
-            # )
-        elif change_light:
-            service = None
-            if target.enable is None:
-                if light_state.state == STATE_ON:
-                    service = SERVICE_TURN_ON
+            return
+
+        service = None
+        if target.enable is None:
+            if light_state.state == STATE_ON:
+                service = SERVICE_TURN_ON
+        else:
+            enable_val = target.enable.resolve(self.hass)
+            if enable_val is True or enable_val == "True" or enable_val == "true":
+                service = SERVICE_TURN_ON
+            elif enable_val is False or enable_val == "False" or enable_val == "false":
+                service = SERVICE_TURN_OFF
             else:
-                enable_val = target.enable.resolve(self.hass)
-                if enable_val is True or enable_val == "True" or enable_val == "true":
-                    service = SERVICE_TURN_ON
-                elif (
-                    enable_val is False
-                    or enable_val == "False"
-                    or enable_val == "false"
-                ):
-                    service = SERVICE_TURN_OFF
-                else:
-                    _LOGGER.warning(
-                        f"Got unexpected value for target.enable '{enable_val}'"
-                    )
-
-            service_data = {
-                ATTR_ENTITY_ID: self._light_entity,
-            }
-            if service is None:
-                return True
-            elif service == SERVICE_TURN_ON:
-                if target.brightness:
-                    brightness_val = target.brightness.resolve(self.hass)
-                    if brightness_val is not None:
-                        service_data[ATTR_BRIGHTNESS_PCT] = int(float(brightness_val))
-                if target.color_temp:
-                    color_val = target.color_temp.resolve(self.hass)
-                    if color_val is not None:
-                        service_data[ATTR_COLOR_TEMP_KELVIN] = int(float(color_val))
-
-            if target.transition is not None:
-                transition_val = target.transition.resolve(self.hass)
-                if transition_val is not None:
-                    service_data[ATTR_TRANSITION] = int(float(transition_val))
-
-            _LOGGER.warning(
-                f"calling service {LIGHT_DOMAIN}.{service}, {service_data} for "
-                f"automation {self._attr_name}"
-            )
-            self.hass.async_create_task(
-                self.hass.services.async_call(
-                    LIGHT_DOMAIN,
-                    service,
-                    service_data,
-                    blocking=False,
+                _LOGGER.warning(
+                    f"Got unexpected value for target.enable '{enable_val}'"
                 )
-            )
 
-        return True
+        service_data: Dict[str, Any] = {
+            ATTR_ENTITY_ID: self._light_entity,
+        }
+        if service is None:
+            return
+        elif service == SERVICE_TURN_OFF:
+            if refresh or light_state.state == STATE_OFF:
+                return
+        else:
+            if refresh and light_state.state != STATE_ON:
+                return
+            if target.brightness:
+                brightness_val = target.brightness.resolve(self.hass)
+                if brightness_val is not None:
+                    service_data[ATTR_BRIGHTNESS_PCT] = int(float(brightness_val))
+            if target.color_temp:
+                color_val = target.color_temp.resolve(self.hass)
+                if color_val is not None:
+                    service_data[ATTR_COLOR_TEMP_KELVIN] = int(float(color_val))
+            if light_state.state == STATE_ON and _light_has(light_state, service_data):
+                return
+
+        if refresh:
+            service_data[ATTR_TRANSITION] = self._refresh_transition
+        elif target.transition is not None:
+            transition_val = target.transition.resolve(self.hass)
+            if transition_val is not None:
+                service_data[ATTR_TRANSITION] = int(float(transition_val))
+
+        _LOGGER.warning(
+            f"calling service {LIGHT_DOMAIN}.{service}, {service_data} for "
+            f"automation {self._attr_name}"
+        )
+        self.hass.async_create_task(
+            self.hass.services.async_call(
+                LIGHT_DOMAIN,
+                service,
+                service_data,
+                blocking=False,
+            )
+        )
+
+
+def _light_has(light_state: State, service_data: Mapping[str, Any]) -> bool:
+    """Whether an on light already has the turn_on's brightness and color.
+
+    Compared at the precision the light reports back in, not the requested
+    one: brightness in whole percent, color temperature in whole mireds
+    within the light's range. An exact comparison would never match, and the
+    light would be sent the same values forever.
+    """
+    attrs = light_state.attributes
+
+    brightness_pct = service_data.get(ATTR_BRIGHTNESS_PCT)
+    if brightness_pct is not None:
+        brightness = attrs.get(ATTR_BRIGHTNESS)
+        if brightness is None or round(brightness * 100 / 255) != brightness_pct:
+            return False
+
+    kelvin = service_data.get(ATTR_COLOR_TEMP_KELVIN)
+    if kelvin is not None:
+        current = attrs.get(ATTR_COLOR_TEMP_KELVIN)
+        if current is None:
+            return False
+        low = attrs.get(ATTR_MIN_COLOR_TEMP_KELVIN)
+        high = attrs.get(ATTR_MAX_COLOR_TEMP_KELVIN)
+        if low is not None and high is not None:
+            kelvin = min(max(kelvin, low), high)
+        if color_temperature_kelvin_to_mired(
+            current
+        ) != color_temperature_kelvin_to_mired(kelvin):
+            return False
+
+    return True

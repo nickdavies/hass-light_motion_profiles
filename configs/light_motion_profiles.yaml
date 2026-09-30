@@ -11,6 +11,13 @@ settings:
       - awake
       - winddown
       - asleep
+  # Optional; these are the defaults. When an entity a profile reads changes
+  # (e.g. the circadian color temperature), lights that are on follow it:
+  # each light config waits its own offset within `spread` seconds, then
+  # fades over `transition` seconds.
+  # refresh:
+  #   spread: 300
+  #   transition: 10
 
 users:
   nick:
