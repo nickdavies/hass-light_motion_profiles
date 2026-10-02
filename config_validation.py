@@ -1,16 +1,24 @@
 import logging
 import argparse
 
-from custom_components.light_motion_profiles import (
+# Home Assistant makes `import voluptuous` mean probatio when it is imported.
+# The component imports voluptuous before anything imports Home Assistant, so
+# this does the same first; otherwise it would load the real voluptuous and
+# Home Assistant would shadow it halfway through.
+from probatio.compat import install_as_voluptuous
+
+install_as_voluptuous()
+
+from custom_components.light_motion_profiles import (  # noqa: E402
     build_domains,
 )
-from custom_components.light_motion_profiles.config import (
+from custom_components.light_motion_profiles.config import (  # noqa: E402
     RawConfig,
 )
-from custom_components.light_motion_profiles.datatypes import (
+from custom_components.light_motion_profiles.datatypes import (  # noqa: E402
     Config,
 )
-from custom_components.light_motion_profiles.exhaustive import (
+from custom_components.light_motion_profiles.exhaustive import (  # noqa: E402
     gen_light_group_matches,
 )
 

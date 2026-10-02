@@ -7,11 +7,19 @@ This must be imported before any custom_components imports.
 
 When real HA is available (e.g. via pytest-homeassistant-custom-component),
 mocking is skipped to avoid conflicts.
+
+`import voluptuous` is made to mean probatio first, as importing Home Assistant
+does (`homeassistant/__init__.py`); the mock does not, and the integration never
+meets the real voluptuous in production.
 """
 
 import sys
 import types
 from unittest.mock import MagicMock
+
+from probatio.compat import install_as_voluptuous
+
+install_as_voluptuous()
 
 
 def _is_real_ha_available() -> bool:
