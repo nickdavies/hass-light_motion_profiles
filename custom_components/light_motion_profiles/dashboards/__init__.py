@@ -458,6 +458,10 @@ NO_LIGHTS_FILL = "--area-fill: #cfcfcf"
 # those on (warm white for one with no colour), nearer the off colour the dimmer
 # the brightest of them is. `profiles` is each light config's profile, once
 # each, a line apiece.
+#
+# ha-floorplan runs these in a sandboxed interpreter that parses ES2019 and
+# can't spread its own Sets, so no `??`, `?.` or `[...new Set()]`: either one
+# fails every room's template, leaving the plan uncoloured and unlabelled.
 ROOM_FUNCTIONS = """\
 const off = [125, 133, 144], warm = [255, 197, 120];
 return {
@@ -465,7 +469,9 @@ return {
     const on = lights.filter((light) => light && light.state === 'on');
     if (!on.length) return `--area-fill: rgb(${off.join(', ')})`;
     const colour = (light) => light.attributes.rgb_color || warm;
-    const level = Math.max(...on.map((light) => light.attributes.brightness ?? 255)) / 255;
+    const brightness = (light) =>
+      light.attributes.brightness == null ? 255 : light.attributes.brightness;
+    const level = Math.max(...on.map(brightness)) / 255;
     const rgb = off.map((c, i) => {
       const lit = on.reduce((sum, light) => sum + colour(light)[i], 0) / on.length;
       return Math.round(c + (lit - c) * (0.4 + 0.6 * level));
@@ -473,7 +479,10 @@ return {
     return `--area-fill: rgb(${rgb.join(', ')})`;
   },
   profiles: (sensors) =>
-    [...new Set(sensors.map((sensor) => (sensor ? sensor.state : 'unknown')))].join('\\n'),
+    sensors
+      .map((sensor) => (sensor ? sensor.state : 'unknown'))
+      .filter((state, i, states) => states.indexOf(state) === i)
+      .join('\\n'),
 };"""
 
 
