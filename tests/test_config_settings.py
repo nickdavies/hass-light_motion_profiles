@@ -1,5 +1,8 @@
 """Tests for config/settings.py."""
 
+import pytest
+import voluptuous as vol
+
 from custom_components.light_motion_profiles.config.settings import (
     OccupancyStates,
     HomeAwayStates,
@@ -7,6 +10,7 @@ from custom_components.light_motion_profiles.config.settings import (
     RoomSettings,
     UserGroupSettings,
     DashboardSettings,
+    Floorplan,
     AllSettings,
 )
 
@@ -63,10 +67,54 @@ class TestUserGroupSettings:
         assert isinstance(s.home_away_states, HomeAwayStates)
 
 
+# homelab-data's area list for a floor, as `!include` reads it.
+MAIN_PLAN = {
+    "image": "/local/floorplan/main.svg",
+    "areas": {"kitchen": {"room": "kitchen"}, "pantry": {"room": "pantry"}},
+}
+
+
 class TestDashboardSettings:
     def test_from_yaml(self):
         s = DashboardSettings.from_yaml({})
-        assert s is not None
+        assert s.floorplans == []
+
+    def test_empty_key_has_no_floorplans(self):
+        assert DashboardSettings.vol()(None) is None
+        assert DashboardSettings.from_yaml(None).floorplans == []
+
+    def test_a_floorplan_is_its_image_and_area_ids(self):
+        data = DashboardSettings.vol()({"floorplans": {"main": MAIN_PLAN}})
+        s = DashboardSettings.from_yaml(data)
+        assert s.floorplans == [
+            Floorplan("main", "/local/floorplan/main.svg", ["kitchen", "pantry"])
+        ]
+
+    def test_floorplans_keep_their_order(self):
+        data = {"floorplans": {"upstairs": MAIN_PLAN, "main": MAIN_PLAN}}
+        s = DashboardSettings.from_yaml(DashboardSettings.vol()(data))
+        assert [plan.name for plan in s.floorplans] == ["upstairs", "main"]
+
+    def test_homelab_data_can_add_keys(self):
+        plan = {**MAIN_PLAN, "areas": {"patio": {"kind": "outdoor"}}, "floor": 0}
+        DashboardSettings.vol()({"floorplans": {"main": plan}})
+
+    def test_a_plan_without_areas_has_none(self):
+        """Home Assistant's package merge drops an empty `areas: {}`."""
+        data = {"floorplans": {"main": {"image": "/local/floorplan/main.svg"}}}
+        s = DashboardSettings.from_yaml(DashboardSettings.vol()(data))
+        assert s.floorplans == [Floorplan("main", "/local/floorplan/main.svg", [])]
+
+    @pytest.mark.parametrize(
+        "plan",
+        [
+            {"areas": {}},
+            {"image": "/local/floorplan/main.svg", "areas": ["kitchen"]},
+        ],
+    )
+    def test_rejects_what_isnt_an_area_list(self, plan):
+        with pytest.raises(vol.Invalid):
+            DashboardSettings.vol()({"floorplans": {"main": plan}})
 
 
 class TestAllSettings:

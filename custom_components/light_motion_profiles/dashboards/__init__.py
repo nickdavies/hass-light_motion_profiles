@@ -24,6 +24,7 @@ from custom_components.lovelace_codegen import (
     ENTITY,
     Fragment,
     GeneratedDashboard,
+    FloorplanCard,
     GridCard,
     NAME,
     Params,
@@ -31,9 +32,12 @@ from custom_components.lovelace_codegen import (
     TileCard,
     VerticalStackCard,
     View,
+    floorplan_style_set,
+    floorplan_tap,
     navigate,
 )
 
+from ..config.settings import Floorplan
 from ..datatypes import (
     Config,
     Group,
@@ -438,19 +442,40 @@ def rooms(hass: HomeAssistant, lights: Mapping[str, LightGroup]) -> list[Room]:
     return found
 
 
+# --- Floor plans ---
+#
+# homelab-data draws each floor with every Home Assistant area on it as an
+# `area-<area id>` element to colour and tap, and lists those areas in a file
+# that the `floorplans` setting `!include`s.
+
+# An area with no light configs, over the plan's own room fill.
+NO_LIGHTS_FILL = "--area-fill: #cfcfcf"
+
+
+def area_element(area_id: str) -> str:
+    return f"area-{area_id}"
+
+
 # --- Everything, as one dashboard ---
 
 
 class DebugDashboard(GeneratedDashboard):
     """People and groups as grids of tiles, each opening a subview with that
     one's debug cards, then rooms, each opening a subview of its light configs.
+    A room with only one light config opens that config's subview directly.
+
+    Rooms are found on the floor plans in the `floorplans` setting, by their
+    area: a tap anywhere in a room with light configs opens it, and a room
+    without any is greyed. Rooms on no plan, or all of them without plans, are
+    a grid of buttons.
 
     The tiles show live state: a user's presence sensor takes the icon
     configured for its state, and a light config's automation sensor takes the
     icon of the profile it is applying.
 
     Room names and icons are read from the area registry when the dashboard is
-    first rendered, so a change to areas shows after Home Assistant restarts.
+    first rendered, so a change to
+    either shows after Home Assistant restarts.
     """
 
     COLUMNS = 4
@@ -496,10 +521,78 @@ class DebugDashboard(GeneratedDashboard):
             tap_action=navigate(self._path(path)),
         )
 
+    def _light_subview(self, name: str, back: str) -> View:
+        light = self._config.lights[name]
+        return self._subview(
+            display_name(name),
+            f"light-{name}",
+            [
+                light_config_card(name, light),
+                manual_lights_card(self._hass, name, light),
+            ],
+            back=back,
+        )
+
+    def _room_path(self, room: Room) -> str:
+        """Where a room opens: its one light config, or the list of them."""
+        if len(room.lights) == 1:
+            return f"light-{room.lights[0]}"
+        return f"room-{room.key}"
+
+    def _floorplan_card(
+        self, plan: Floorplan, by_key: Mapping[str, Room], title: str
+    ) -> FloorplanCard:
+        """The plan, where tapping a room with light configs opens it, and a
+        room without any is greyed."""
+        unlit = [area_element(a) for a in plan.areas if a not in by_key]
+        return FloorplanCard(
+            plan.image,
+            rules=[
+                floorplan_tap(
+                    area_element(area_id),
+                    navigate(self._path(self._room_path(by_key[area_id]))),
+                )
+                for area_id in plan.areas
+                if area_id in by_key
+            ],
+            startup_actions=[floorplan_style_set(unlit, NO_LIGHTS_FILL)]
+            if unlit
+            else [],
+            title=title,
+        )
+
     async def render(self) -> DBT:
         ug = self._config.users_groups
         lights = self._config.lights
         by_room = rooms(self._hass, lights)
+        by_key = {room.key: room for room in by_room}
+
+        settings = self._config.settings.dashboard
+        plans = settings.floorplans if settings is not None else []
+        on_plans = {area_id for plan in plans for area_id in plan.areas}
+        plan_cards: list[Renderable] = [
+            self._floorplan_card(
+                plan, by_key, "Rooms" if len(plans) == 1 else display_name(plan.name)
+            )
+            for plan in plans
+        ]
+        off_plans = [room for room in by_room if room.key not in on_plans]
+        room_grids: list[Renderable] = []
+        if off_plans:
+            room_grids.append(
+                GridCard(
+                    [
+                        ButtonCard(
+                            room.name,
+                            room.icon,
+                            tap_action=navigate(self._path(self._room_path(room))),
+                        )
+                        for room in off_plans
+                    ],
+                    columns=self.COLUMNS,
+                    title="Other rooms" if plans else "Rooms",
+                )
+            )
 
         main = View(
             title=self.title,
@@ -530,18 +623,8 @@ class DebugDashboard(GeneratedDashboard):
                             columns=self.COLUMNS,
                             title="Groups",
                         ),
-                        GridCard(
-                            [
-                                ButtonCard(
-                                    room.name,
-                                    room.icon,
-                                    tap_action=navigate(self._path(f"room-{room.key}")),
-                                )
-                                for room in by_room
-                            ],
-                            columns=self.COLUMNS,
-                            title="Rooms",
-                        ),
+                        *plan_cards,
+                        *room_grids,
                     ]
                 )
             ],
@@ -564,6 +647,9 @@ class DebugDashboard(GeneratedDashboard):
             for name, group in ug.groups.items()
         ]
         for room in by_room:
+            if len(room.lights) == 1:
+                views.append(self._light_subview(room.lights[0], back="main"))
+                continue
             views.append(
                 self._subview(
                     room.name,
@@ -594,15 +680,7 @@ class DebugDashboard(GeneratedDashboard):
                 )
             )
             views += [
-                self._subview(
-                    display_name(name),
-                    f"light-{name}",
-                    [
-                        light_config_card(name, lights[name]),
-                        manual_lights_card(self._hass, name, lights[name]),
-                    ],
-                    back=f"room-{room.key}",
-                )
+                self._light_subview(name, back=f"room-{room.key}")
                 for name in room.lights
             ]
         return Dashboard(views).render()

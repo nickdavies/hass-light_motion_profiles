@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Set, Mapping, Any
 
 import voluptuous as vol
@@ -136,15 +136,66 @@ class UserGroupSettings:
         )
 
 
-@dataclass
-class DashboardSettings:
+@dataclass(frozen=True)
+class Floorplan:
+    """One floor plan from homelab-data, as its `floorplan_areas_<floor>.yaml`
+    lists it: where the plan is served, and the ids of the areas drawn on it,
+    each an `area-<id>` element to colour and tap."""
+
+    name: str
+    image: str
+    areas: List[str]
+
+    FIELD_IMAGE = "image"
+    FIELD_AREAS = "areas"
+
     @classmethod
-    def from_yaml(cls, data: Mapping[str, List[str]]) -> "DashboardSettings":
-        return cls()
+    def from_yaml(cls, name: str, data: Mapping[str, Any]) -> "Floorplan":
+        return cls(
+            name=name,
+            image=data[cls.FIELD_IMAGE],
+            areas=list(data.get(cls.FIELD_AREAS, {})),
+        )
 
     @classmethod
     def vol(cls) -> vol.Schema:
-        return vol.Schema(vol.Any(None, {}))
+        # Extra keys, in the file and on each area, are homelab-data's to add.
+        # `areas` may be missing: Home Assistant's package merge drops an empty
+        # mapping, so a plan with no areas arrives without the key.
+        return vol.Schema(
+            {
+                vol.Required(cls.FIELD_IMAGE): cv.string,
+                vol.Optional(cls.FIELD_AREAS, default={}): {
+                    cv.slug: vol.Any(None, dict)
+                },
+            },
+            extra=vol.ALLOW_EXTRA,
+        )
+
+
+@dataclass
+class DashboardSettings:
+    # Floor plans the Debug dashboard places its rooms on, by name, each the
+    # area list homelab-data generates for it, `!include`d.
+    floorplans: List[Floorplan] = field(default_factory=list)
+
+    FIELD_FLOORPLANS = "floorplans"
+
+    @classmethod
+    def from_yaml(cls, data: Mapping[str, Any] | None) -> "DashboardSettings":
+        plans = (data or {}).get(cls.FIELD_FLOORPLANS, {})
+        return cls(
+            floorplans=[Floorplan.from_yaml(name, plan) for name, plan in plans.items()]
+        )
+
+    @classmethod
+    def vol(cls) -> vol.Schema:
+        return vol.Schema(
+            vol.Any(
+                None,
+                {vol.Optional(cls.FIELD_FLOORPLANS): {cv.slug: Floorplan.vol()}},
+            )
+        )
 
 
 @dataclass

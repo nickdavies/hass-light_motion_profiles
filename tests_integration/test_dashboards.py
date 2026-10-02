@@ -46,12 +46,17 @@ def _entity_ids(node: Any) -> list[str]:
 
 
 async def _setup_dashboards(
-    hass: HomeAssistant, areas: dict[str, str] | None = None
+    hass: HomeAssistant,
+    areas: dict[str, str] | None = None,
+    floorplans: dict[str, Any] | None = None,
 ) -> HomeAssistant:
-    """Set the component up with the debug dashboards on, and `areas` (light
-    config name to area id) as the light configs' `area:` keys."""
+    """Set the component up with the debug dashboards on, `areas` (light config
+    name to area id) as the light configs' `area:` keys, and `floorplans` as the
+    dashboard's."""
     config = copy.deepcopy(TEST_CONFIG)
-    config[DOMAIN]["settings"]["debug_dashboard"] = {}
+    config[DOMAIN]["settings"]["debug_dashboard"] = (
+        {"floorplans": floorplans} if floorplans is not None else {}
+    )
     for light, area in (areas or {}).items():
         config[DOMAIN]["light_configs"][light]["area"] = area
 
@@ -320,8 +325,8 @@ async def test_rooms_come_from_areas_sorted_by_name(with_rooms: HomeAssistant) -
         ("button", "Living", "mdi:sofa"),
     ]
     assert [r["tap_action"]["navigation_path"] for r in rooms] == [
-        "/lovelace-debug/room-bedroom",
-        "/lovelace-debug/room-living",
+        "/lovelace-debug/light-bedside_lamp",
+        "/lovelace-debug/light-simple_room",
     ]
 
 
@@ -348,53 +353,89 @@ async def test_an_area_that_doesnt_exist_still_gets_a_room(
     ]
 
 
+@pytest.fixture
+async def with_shared_room(
+    hass: HomeAssistant, light_service_calls: list[ServiceCall]
+) -> HomeAssistant:
+    """Both light configs in "Living"."""
+    living = ar.async_get(hass).async_create("Living", icon="mdi:sofa")
+    return await _setup_dashboards(
+        hass, {"simple_room": living.id, "bedside_lamp": living.id}
+    )
+
+
 async def test_a_room_has_config_tiles_then_a_profile_row_each(
+    with_shared_room: HomeAssistant,
+) -> None:
+    views = await _views(with_shared_room)
+    rooms = _cards(views["main"])[2]["cards"]
+    tiles, profiles = _cards(views["room-living"])
+
+    assert rooms[0]["tap_action"]["navigation_path"] == "/lovelace-debug/room-living"
+    assert views["room-living"]["title"] == "Living"
+    assert [t["entity"] for t in tiles["cards"]] == [
+        SIMPLE_ROOM_AUTOMATION,
+        BEDSIDE_AUTOMATION,
+    ]
+    assert [t["tap_action"]["navigation_path"] for t in tiles["cards"]] == [
+        "/lovelace-debug/light-simple_room",
+        "/lovelace-debug/light-bedside_lamp",
+    ]
+    assert profiles["title"] == "Profiles"
+    assert _entity_ids(profiles) == [SIMPLE_ROOM_AUTOMATION, BEDSIDE_AUTOMATION]
+    for light in ("simple_room", "bedside_lamp"):
+        assert views[f"light-{light}"]["back_path"] == "/lovelace-debug/room-living"
+
+
+async def test_a_room_with_one_config_opens_it_directly(
     with_rooms: HomeAssistant,
 ) -> None:
-    room = (await _views(with_rooms))["room-living"]
-    tiles, profiles = _cards(room)
+    views = await _views(with_rooms)
 
-    assert room["title"] == "Living"
-    assert [t["entity"] for t in tiles["cards"]] == [SIMPLE_ROOM_AUTOMATION]
-    assert tiles["cards"][0]["tap_action"]["navigation_path"] == (
-        "/lovelace-debug/light-simple_room"
-    )
-    assert profiles["title"] == "Profiles"
-    assert _entity_ids(profiles) == [SIMPLE_ROOM_AUTOMATION]
+    assert not [path for path in views if path.startswith("room-")]
+    assert views["light-simple_room"]["title"] == "Simple room"
+    assert views["light-simple_room"]["back_path"] == "/lovelace-debug/main"
+
+
+def _links(view: dict[str, Any]) -> list[str]:
+    """Every navigation from a view's grids and floor plans."""
+    found = []
+    for card in _cards(view):
+        children = card.get("cards", card.get("config", {}).get("rules", []))
+        found += [
+            child["tap_action"]["navigation_path"]
+            for child in children
+            if child.get("tap_action", {}).get("action") == "navigate"
+        ]
+    return found
+
+
+async def _assert_links_lead_to_subviews_that_lead_back(hass: HomeAssistant) -> None:
+    views = await _views(hass)
+    links = [link for view in views.values() for link in _links(view)]
+    subviews = {f"/lovelace-debug/{path}" for path in views if path != "main"}
+
+    assert set(links) == subviews
+    for path, view in views.items():
+        if path == "main":
+            continue
+        assert view["subview"] is True
+        back = view["back_path"]
+        assert back == "/lovelace-debug/main" or f"/lovelace-debug/{path}" in _links(
+            views[back.removeprefix("/lovelace-debug/")]
+        ), f"{path} goes back to {back}, which doesn't link to it"
 
 
 async def test_every_link_leads_to_a_subview_that_leads_back(
     with_rooms: HomeAssistant,
 ) -> None:
-    views = await _views(with_rooms)
+    await _assert_links_lead_to_subviews_that_lead_back(with_rooms)
 
-    def links(view: dict[str, Any]) -> list[str]:
-        return [
-            card["tap_action"]["navigation_path"]
-            for grid in _cards(view)
-            if grid["type"] == "grid"
-            for card in grid["cards"]
-        ]
 
-    main_links = links(views["main"])
-    room_links = [
-        link
-        for path in views
-        if path.startswith("room-")
-        for link in links(views[path])
-    ]
-    subviews = {f"/lovelace-debug/{path}" for path in views if path != "main"}
-    assert sorted(main_links + room_links) == sorted(subviews)
-
-    for path, view in views.items():
-        if path == "main":
-            continue
-        assert view["subview"] is True
-        if path.startswith("light-"):
-            room = "room-living" if path == "light-simple_room" else "room-bedroom"
-            assert view["back_path"] == f"/lovelace-debug/{room}"
-        else:
-            assert view["back_path"] == "/lovelace-debug/main"
+async def test_every_link_in_a_shared_room_leads_back(
+    with_shared_room: HomeAssistant,
+) -> None:
+    await _assert_links_lead_to_subviews_that_lead_back(with_shared_room)
 
 
 async def test_the_subviews_are_made_of_the_fragments(
@@ -413,3 +454,88 @@ async def test_the_subviews_are_made_of_the_fragments(
         _render(hass, "light_config", light="simple_room"),
         _render(hass, "manual_lights", light="simple_room"),
     ]
+
+
+# --- Rooms on a floor plan ---
+
+# Living and a pantry are on the plan; the bedroom isn't on it.
+PLAN_AREAS = {
+    "image": "/local/floorplan/ground.svg",
+    "areas": {"living": {"room": "living"}, "pantry": {"room": "pantry"}},
+}
+
+
+@pytest.fixture
+async def with_plan(
+    hass: HomeAssistant, light_service_calls: list[ServiceCall]
+) -> HomeAssistant:
+    """with_rooms, with a pantry area that has no light configs, and the areas
+    above as the plan "ground"."""
+    areas = ar.async_get(hass)
+    living = areas.async_create("Living", icon="mdi:sofa")
+    bedroom = areas.async_create("Bedroom")
+    areas.async_create("Pantry")
+    assert living.id == "living"
+    return await _setup_dashboards(
+        hass,
+        {"simple_room": living.id, "bedside_lamp": bedroom.id},
+        floorplans={"ground": PLAN_AREAS},
+    )
+
+
+async def test_rooms_on_the_plan_are_on_it_and_the_rest_below(
+    with_plan: HomeAssistant,
+) -> None:
+    plan, others = _cards((await _debug(with_plan))["views"][0])[2:]
+
+    assert plan["type"] == "custom:floorplan-card"
+    assert plan["title"] == "Rooms"
+    assert plan["config"]["image"]["location"] == "/local/floorplan/ground.svg"
+    assert others["title"] == "Other rooms"
+    assert [r["name"] for r in others["cards"]] == ["Bedroom"]
+
+
+async def test_a_room_on_the_plan_opens_from_its_area(
+    with_plan: HomeAssistant,
+) -> None:
+    plan = _cards((await _debug(with_plan))["views"][0])[2]
+
+    assert plan["config"]["rules"] == [
+        {
+            "element": "area-living",
+            "tap_action": {
+                "action": "navigate",
+                "navigation_path": "/lovelace-debug/light-simple_room",
+            },
+        }
+    ]
+
+
+async def test_an_area_on_the_plan_with_no_lights_is_greyed(
+    with_plan: HomeAssistant,
+) -> None:
+    plan = _cards((await _debug(with_plan))["views"][0])[2]
+
+    [grey] = plan["config"]["startup_action"]
+    assert grey["service"] == "floorplan.style_set"
+    assert grey["service_data"]["elements"] == ["area-pantry"]
+    assert grey["service_data"]["style"].startswith("--area-fill:")
+
+
+async def test_every_link_on_the_plan_leads_back(with_plan: HomeAssistant) -> None:
+    await _assert_links_lead_to_subviews_that_lead_back(with_plan)
+
+
+async def test_a_plan_that_isnt_an_area_list_fails_setup(
+    hass: HomeAssistant, light_service_calls: list[ServiceCall]
+) -> None:
+    """The area list is config, so a bad one is a config error, not a plan
+    quietly left off the dashboard."""
+    config = copy.deepcopy(TEST_CONFIG)
+    config[DOMAIN]["settings"]["debug_dashboard"] = {
+        "floorplans": {"ground": {"areas": ["living"]}}
+    }
+    hass.data.pop(DATA_CUSTOM_COMPONENTS, None)
+    _ensure_custom_components_path()
+
+    assert not await async_setup_component(hass, DOMAIN, config)
