@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Set, Mapping, Any
 
 import voluptuous as vol
@@ -138,13 +138,24 @@ class UserGroupSettings:
 
 @dataclass
 class DashboardSettings:
+    # Floor plans the Debug dashboard places its rooms on, by name: homelab-data's
+    # `floorplan_<name>.svg`, which homelab serves as /local/floorplan/<name>.svg.
+    floorplans: List[str] = field(default_factory=list)
+
+    FIELD_FLOORPLANS = "floorplans"
+
     @classmethod
-    def from_yaml(cls, data: Mapping[str, List[str]]) -> "DashboardSettings":
-        return cls()
+    def from_yaml(cls, data: Mapping[str, List[str]] | None) -> "DashboardSettings":
+        return cls(floorplans=list((data or {}).get(cls.FIELD_FLOORPLANS, [])))
 
     @classmethod
     def vol(cls) -> vol.Schema:
-        return vol.Schema(vol.Any(None, {}))
+        return vol.Schema(
+            vol.Any(
+                None,
+                {vol.Optional(cls.FIELD_FLOORPLANS): [cv.slug]},
+            )
+        )
 
 
 @dataclass

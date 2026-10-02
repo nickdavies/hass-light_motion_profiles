@@ -6,7 +6,9 @@ these cards (`custom:codegen-fragment`). The two generated dashboards are only
 these functions put together, so they cannot drift from the embedded copies.
 """
 
+import hashlib
 import logging
+import pathlib
 
 from dataclasses import dataclass
 from typing import List, Dict, Mapping, Set, Sequence
@@ -25,15 +27,19 @@ from custom_components.lovelace_codegen import (
     Fragment,
     GeneratedDashboard,
     GridCard,
+    IconElement,
     NAME,
     Params,
+    PictureElementsCard,
     Renderable,
     TileCard,
     VerticalStackCard,
     View,
     navigate,
+    tap_area,
 )
 
+from ..floorplan import Floorplan, FloorplanError, parse as parse_floorplan
 from ..datatypes import (
     Config,
     Group,
@@ -438,19 +444,79 @@ def rooms(hass: HomeAssistant, lights: Mapping[str, LightGroup]) -> list[Room]:
     return found
 
 
+# --- Floor plans ---
+#
+# homelab-data draws each floor with every room as a `room-<area id>` group, the
+# same ids as the areas, and homelab serves it from www/floorplan/.
+
+# The plan's own room fill, behind an icon so that it hides the room's reading
+# placeholder, which the icon sits on.
+PLAN_ROOM_FILL = "#e8e4da"
+# An icon for a room with no light configs: the plan's wall grey.
+NO_LIGHTS_COLOR = "#9a9a9a"
+
+
+@dataclass(frozen=True)
+class LoadedFloorplan:
+    name: str
+    # Where the browser fetches it, with a version from its contents so a new
+    # plan isn't hidden behind the browser's cached copy of the old one.
+    url: str
+    plan: Floorplan
+
+
+async def load_floorplan(hass: HomeAssistant, name: str) -> LoadedFloorplan | None:
+    """A floor plan from www/floorplan/, or None, with a warning, when it is
+    missing or not one homelab-data drew."""
+    path = pathlib.Path(hass.config.path("www", "floorplan", f"{name}.svg"))
+    try:
+        svg = await hass.async_add_executor_job(path.read_text)
+    except OSError as e:
+        _LOGGER.warning("Can't read floor plan %r at %s: %s", name, path, e)
+        return None
+    try:
+        plan = parse_floorplan(svg)
+    except FloorplanError as e:
+        _LOGGER.warning("Can't use floor plan %r at %s: %s", name, path, e)
+        return None
+    version = hashlib.sha256(svg.encode()).hexdigest()[:12]
+    return LoadedFloorplan(name, f"/local/floorplan/{name}.svg?v={version}", plan)
+
+
+def plan_icon_style(color: str) -> dict[str, str]:
+    """An icon on a plan: on a disc of the room's fill, and sized with the
+    screen, which a plan on the main view is about as wide as, so that it stays
+    clear of the room's name on a phone and visible on a large screen."""
+    return {
+        "--mdc-icon-size": "clamp(14px, 4vw, 32px)",
+        "color": color,
+        "background": PLAN_ROOM_FILL,
+        "border-radius": "50%",
+        "padding": "2px",
+        "display": "flex",
+    }
+
+
 # --- Everything, as one dashboard ---
 
 
 class DebugDashboard(GeneratedDashboard):
     """People and groups as grids of tiles, each opening a subview with that
     one's debug cards, then rooms, each opening a subview of its light configs.
+    A room with only one light config opens that config's subview directly.
+
+    Rooms are found on the floor plans in the `floorplans` setting: each room
+    with light configs shows its area's icon there, and a tap anywhere in it
+    opens it. A room on a plan without light configs shows its icon greyed. Rooms
+    on no plan, or all of them without plans, are a grid of buttons.
 
     The tiles show live state: a user's presence sensor takes the icon
     configured for its state, and a light config's automation sensor takes the
     icon of the profile it is applying.
 
-    Room names and icons are read from the area registry when the dashboard is
-    first rendered, so a change to areas shows after Home Assistant restarts.
+    Room names and icons are read from the area registry, and the floor plans
+    from www/floorplan/, when the dashboard is first rendered, so a change to
+    either shows after Home Assistant restarts.
     """
 
     COLUMNS = 4
@@ -496,10 +562,100 @@ class DebugDashboard(GeneratedDashboard):
             tap_action=navigate(self._path(path)),
         )
 
+    def _light_subview(self, name: str, back: str) -> View:
+        light = self._config.lights[name]
+        return self._subview(
+            display_name(name),
+            f"light-{name}",
+            [
+                light_config_card(name, light),
+                manual_lights_card(self._hass, name, light),
+            ],
+            back=back,
+        )
+
+    def _room_path(self, room: Room) -> str:
+        """Where a room opens: its one light config, or the list of them."""
+        if len(room.lights) == 1:
+            return f"light-{room.lights[0]}"
+        return f"room-{room.key}"
+
+    def _floorplan_card(
+        self, loaded: LoadedFloorplan, by_key: Mapping[str, Room], title: str
+    ) -> PictureElementsCard:
+        """The plan, with an icon on each room and the room itself to tap.
+
+        The tap areas come first so the icons draw over them.
+        """
+        areas = ar.async_get(self._hass)
+        plan = loaded.plan
+        taps: list[Renderable] = []
+        icons: list[Renderable] = []
+        for area_id, placed in plan.rooms.items():
+            room = by_key.get(area_id)
+            if room is None:
+                area = areas.async_get_area(area_id)
+                if area is not None:
+                    icons.append(
+                        IconElement(
+                            area.icon or DEFAULT_ROOM_ICON,
+                            *placed.anchor,
+                            tap_action={"action": "none"},
+                            style=plan_icon_style(NO_LIGHTS_COLOR),
+                        )
+                    )
+                continue
+            action = navigate(self._path(self._room_path(room)))
+            taps += [
+                tap_area(a.left, a.top, a.width, a.height, plan.aspect, action)
+                for a in placed.areas
+            ]
+            icons.append(
+                IconElement(
+                    room.icon,
+                    *placed.anchor,
+                    tap_action=action,
+                    style=plan_icon_style("var(--primary-color)"),
+                )
+            )
+        return PictureElementsCard(loaded.url, [*taps, *icons], title=title)
+
     async def render(self) -> DBT:
         ug = self._config.users_groups
         lights = self._config.lights
         by_room = rooms(self._hass, lights)
+        by_key = {room.key: room for room in by_room}
+
+        settings = self._config.settings.dashboard
+        loaded = [
+            plan
+            for name in (settings.floorplans if settings is not None else [])
+            if (plan := await load_floorplan(self._hass, name)) is not None
+        ]
+        on_plans = {key for plan in loaded for key in plan.plan.rooms}
+        plan_cards: list[Renderable] = [
+            self._floorplan_card(
+                plan, by_key, "Rooms" if len(loaded) == 1 else display_name(plan.name)
+            )
+            for plan in loaded
+        ]
+        off_plans = [room for room in by_room if room.key not in on_plans]
+        room_grids: list[Renderable] = []
+        if off_plans:
+            room_grids.append(
+                GridCard(
+                    [
+                        ButtonCard(
+                            room.name,
+                            room.icon,
+                            tap_action=navigate(self._path(self._room_path(room))),
+                        )
+                        for room in off_plans
+                    ],
+                    columns=self.COLUMNS,
+                    title="Other rooms" if loaded else "Rooms",
+                )
+            )
 
         main = View(
             title=self.title,
@@ -530,18 +686,8 @@ class DebugDashboard(GeneratedDashboard):
                             columns=self.COLUMNS,
                             title="Groups",
                         ),
-                        GridCard(
-                            [
-                                ButtonCard(
-                                    room.name,
-                                    room.icon,
-                                    tap_action=navigate(self._path(f"room-{room.key}")),
-                                )
-                                for room in by_room
-                            ],
-                            columns=self.COLUMNS,
-                            title="Rooms",
-                        ),
+                        *plan_cards,
+                        *room_grids,
                     ]
                 )
             ],
@@ -564,6 +710,9 @@ class DebugDashboard(GeneratedDashboard):
             for name, group in ug.groups.items()
         ]
         for room in by_room:
+            if len(room.lights) == 1:
+                views.append(self._light_subview(room.lights[0], back="main"))
+                continue
             views.append(
                 self._subview(
                     room.name,
@@ -594,15 +743,7 @@ class DebugDashboard(GeneratedDashboard):
                 )
             )
             views += [
-                self._subview(
-                    display_name(name),
-                    f"light-{name}",
-                    [
-                        light_config_card(name, lights[name]),
-                        manual_lights_card(self._hass, name, lights[name]),
-                    ],
-                    back=f"room-{room.key}",
-                )
+                self._light_subview(name, back=f"room-{room.key}")
                 for name in room.lights
             ]
         return Dashboard(views).render()

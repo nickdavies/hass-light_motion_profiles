@@ -66,7 +66,14 @@ class TestUserGroupSettings:
 class TestDashboardSettings:
     def test_from_yaml(self):
         s = DashboardSettings.from_yaml({})
-        assert s is not None
+        assert s.floorplans == []
+
+    def test_empty_key_has_no_floorplans(self):
+        assert DashboardSettings.from_yaml(None).floorplans == []
+
+    def test_floorplans_keep_their_order(self):
+        s = DashboardSettings.from_yaml({"floorplans": ["main", "basement"]})
+        assert s.floorplans == ["main", "basement"]
 
 
 class TestAllSettings:
