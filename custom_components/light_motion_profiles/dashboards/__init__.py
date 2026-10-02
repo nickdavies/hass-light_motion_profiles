@@ -9,7 +9,7 @@ these functions put together, so they cannot drift from the embedded copies.
 import logging
 
 from dataclasses import dataclass
-from typing import List, Dict, Mapping, Set, Sequence
+from typing import Any, List, Dict, Mapping, Set, Sequence
 
 import voluptuous as vol
 from homeassistant.const import ATTR_ENTITY_ID
@@ -32,8 +32,10 @@ from custom_components.lovelace_codegen import (
     TileCard,
     VerticalStackCard,
     View,
+    floorplan_on_state,
     floorplan_style_set,
     floorplan_tap,
+    floorplan_text_set,
     navigate,
 )
 
@@ -451,27 +453,61 @@ def rooms(hass: HomeAssistant, lights: Mapping[str, LightGroup]) -> list[Room]:
 # An area with no light configs, over the plan's own room fill.
 NO_LIGHTS_FILL = "--area-fill: #cfcfcf"
 
+# The rooms' rules' helpers, for ha-floorplan's templates. `fill` colours a room
+# by its lights: the off colour when none is on, else the average colour of
+# those on (warm white for one with no colour), nearer the off colour the dimmer
+# the brightest of them is. `profiles` is each light config's profile, once
+# each, a line apiece.
+ROOM_FUNCTIONS = """\
+const off = [125, 133, 144], warm = [255, 197, 120];
+return {
+  fill: (lights) => {
+    const on = lights.filter((light) => light && light.state === 'on');
+    if (!on.length) return `--area-fill: rgb(${off.join(', ')})`;
+    const colour = (light) => light.attributes.rgb_color || warm;
+    const level = Math.max(...on.map((light) => light.attributes.brightness ?? 255)) / 255;
+    const rgb = off.map((c, i) => {
+      const lit = on.reduce((sum, light) => sum + colour(light)[i], 0) / on.length;
+      return Math.round(c + (lit - c) * (0.4 + 0.6 * level));
+    });
+    return `--area-fill: rgb(${rgb.join(', ')})`;
+  },
+  profiles: (sensors) =>
+    [...new Set(sensors.map((sensor) => (sensor ? sensor.state : 'unknown')))].join('\\n'),
+};"""
+
 
 def area_element(area_id: str) -> str:
     return f"area-{area_id}"
+
+
+def area_value_element(area_id: str) -> str:
+    """The text under an area's name on the plan."""
+    return f"area-{area_id}-value"
+
+
+def _entities_template(entity_ids: Sequence[str]) -> str:
+    """The entities' states, as a JavaScript list in a template."""
+    return "[" + ", ".join(f"entities['{e}']" for e in entity_ids) + "]"
 
 
 # --- Everything, as one dashboard ---
 
 
 class DebugDashboard(GeneratedDashboard):
-    """People and groups as grids of tiles, each opening a subview with that
-    one's debug cards, then rooms, each opening a subview of its light configs.
-    A room with only one light config opens that config's subview directly.
+    """Rooms, each opening a subview with every one of its light configs' cards,
+    one config after another, then people and groups as grids of tiles, each
+    opening a subview with that one's debug cards.
 
     Rooms are found on the floor plans in the `floorplans` setting, by their
     area: a tap anywhere in a room with light configs opens it, and a room
-    without any is greyed. Rooms on no plan, or all of them without plans, are
-    a grid of buttons.
+    without any is greyed. A room with light configs is coloured by its lights,
+    the colour of those on or grey when all are off, and its text on the plan
+    is the profile each of its configs is applying, one line per profile. Rooms
+    on no plan, or all of them without plans, are a grid of buttons.
 
     The tiles show live state: a user's presence sensor takes the icon
-    configured for its state, and a light config's automation sensor takes the
-    icon of the profile it is applying.
+    configured for its state.
 
     Room names and icons are read from the area registry when the dashboard is
     first rendered, so a change to
@@ -521,44 +557,64 @@ class DebugDashboard(GeneratedDashboard):
             tap_action=navigate(self._path(path)),
         )
 
-    def _light_subview(self, name: str, back: str) -> View:
-        light = self._config.lights[name]
-        return self._subview(
-            display_name(name),
-            f"light-{name}",
-            [
+    def _room_path(self, room: Room) -> str:
+        return f"room-{room.key}"
+
+    def _room_subview(self, room: Room) -> View:
+        """Each of the room's light configs' cards, one config after another."""
+        cards: list[Renderable] = []
+        for name in room.lights:
+            light = self._config.lights[name]
+            cards += [
                 light_config_card(name, light),
                 manual_lights_card(self._hass, name, light),
-            ],
-            back=back,
-        )
+            ]
+        return self._subview(room.name, self._room_path(room), cards)
 
-    def _room_path(self, room: Room) -> str:
-        """Where a room opens: its one light config, or the list of them."""
-        if len(room.lights) == 1:
-            return f"light-{room.lights[0]}"
-        return f"room-{room.key}"
+    def _room_rules(self, room: Room) -> list[dict[str, Any]]:
+        """A room on a plan: coloured by its lights, its text the profiles its
+        configs apply, and a tap opening it."""
+        configs = [self._config.lights[name] for name in room.lights]
+        lights = list(dict.fromkeys(c.lights.entity for c in configs))
+        profiles = [c.light_automation_entity.full for c in configs]
+        return [
+            floorplan_on_state(
+                [*lights, *profiles],
+                [
+                    floorplan_style_set(
+                        [area_element(room.key)],
+                        f"${{functions.fill({_entities_template(lights)})}}",
+                    ),
+                    floorplan_text_set(
+                        area_value_element(room.key),
+                        f"${{functions.profiles({_entities_template(profiles)})}}",
+                    ),
+                ],
+            ),
+            floorplan_tap(
+                area_element(room.key), navigate(self._path(self._room_path(room)))
+            ),
+        ]
 
     def _floorplan_card(
         self, plan: Floorplan, by_key: Mapping[str, Room], title: str
     ) -> FloorplanCard:
-        """The plan, where tapping a room with light configs opens it, and a
-        room without any is greyed."""
+        """The plan, where a room with light configs shows them and opens on a
+        tap, and a room without any is greyed."""
         unlit = [area_element(a) for a in plan.areas if a not in by_key]
         return FloorplanCard(
             plan.image,
             rules=[
-                floorplan_tap(
-                    area_element(area_id),
-                    navigate(self._path(self._room_path(by_key[area_id]))),
-                )
+                rule
                 for area_id in plan.areas
                 if area_id in by_key
+                for rule in self._room_rules(by_key[area_id])
             ],
             startup_actions=[floorplan_style_set(unlit, NO_LIGHTS_FILL)]
             if unlit
             else [],
             title=title,
+            functions=ROOM_FUNCTIONS,
         )
 
     async def render(self) -> DBT:
@@ -600,6 +656,8 @@ class DebugDashboard(GeneratedDashboard):
             cards=[
                 VerticalStackCard(
                     cards=[
+                        *plan_cards,
+                        *room_grids,
                         GridCard(
                             [
                                 self._tile(
@@ -623,8 +681,6 @@ class DebugDashboard(GeneratedDashboard):
                             columns=self.COLUMNS,
                             title="Groups",
                         ),
-                        *plan_cards,
-                        *room_grids,
                     ]
                 )
             ],
@@ -646,41 +702,5 @@ class DebugDashboard(GeneratedDashboard):
             )
             for name, group in ug.groups.items()
         ]
-        for room in by_room:
-            if len(room.lights) == 1:
-                views.append(self._light_subview(room.lights[0], back="main"))
-                continue
-            views.append(
-                self._subview(
-                    room.name,
-                    f"room-{room.key}",
-                    [
-                        GridCard(
-                            [
-                                self._tile(
-                                    lights[name].light_automation_entity.full,
-                                    name,
-                                    f"light-{name}",
-                                )
-                                for name in room.lights
-                            ],
-                            columns=self.COLUMNS,
-                        ),
-                        EntitiesCard(
-                            [
-                                {
-                                    ENTITY: lights[name].light_automation_entity.full,
-                                    NAME: display_name(name),
-                                }
-                                for name in room.lights
-                            ],
-                            title="Profiles",
-                        ),
-                    ],
-                )
-            )
-            views += [
-                self._light_subview(name, back=f"room-{room.key}")
-                for name in room.lights
-            ]
+        views += [self._room_subview(room) for room in by_room]
         return Dashboard(views).render()
