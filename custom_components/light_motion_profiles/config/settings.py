@@ -154,16 +154,20 @@ class Floorplan:
         return cls(
             name=name,
             image=data[cls.FIELD_IMAGE],
-            areas=list(data[cls.FIELD_AREAS]),
+            areas=list(data.get(cls.FIELD_AREAS, {})),
         )
 
     @classmethod
     def vol(cls) -> vol.Schema:
         # Extra keys, in the file and on each area, are homelab-data's to add.
+        # `areas` may be missing: Home Assistant's package merge drops an empty
+        # mapping, so a plan with no areas arrives without the key.
         return vol.Schema(
             {
                 vol.Required(cls.FIELD_IMAGE): cv.string,
-                vol.Required(cls.FIELD_AREAS): {cv.slug: vol.Any(None, dict)},
+                vol.Optional(cls.FIELD_AREAS, default={}): {
+                    cv.slug: vol.Any(None, dict)
+                },
             },
             extra=vol.ALLOW_EXTRA,
         )

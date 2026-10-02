@@ -99,11 +99,16 @@ class TestDashboardSettings:
         plan = {**MAIN_PLAN, "areas": {"patio": {"kind": "outdoor"}}, "floor": 0}
         DashboardSettings.vol()({"floorplans": {"main": plan}})
 
+    def test_a_plan_without_areas_has_none(self):
+        """Home Assistant's package merge drops an empty `areas: {}`."""
+        data = {"floorplans": {"main": {"image": "/local/floorplan/main.svg"}}}
+        s = DashboardSettings.from_yaml(DashboardSettings.vol()(data))
+        assert s.floorplans == [Floorplan("main", "/local/floorplan/main.svg", [])]
+
     @pytest.mark.parametrize(
         "plan",
         [
             {"areas": {}},
-            {"image": "/local/floorplan/main.svg"},
             {"image": "/local/floorplan/main.svg", "areas": ["kitchen"]},
         ],
     )
