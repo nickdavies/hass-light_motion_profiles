@@ -549,6 +549,10 @@ async def test_a_room_on_the_plan_shows_its_lights_and_profiles(
     assert plan["config"]["functions"].startswith(">")
     assert "fill:" in plan["config"]["functions"]
     assert "profiles:" in plan["config"]["functions"]
+    # ha-floorplan's sandbox parses ES2019 and can't spread a Set; any of these
+    # fails every template on the plan.
+    for unsupported in ("??", "?.", "new Set"):
+        assert unsupported not in plan["config"]["functions"]
 
 
 async def test_an_area_on_the_plan_with_no_lights_is_greyed(
