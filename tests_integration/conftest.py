@@ -335,18 +335,25 @@ async def light_service_calls(hass: HomeAssistant) -> list[ServiceCall]:
     return calls
 
 
-@pytest.fixture
-async def integration(
-    hass: HomeAssistant, light_service_calls: list[ServiceCall]
+async def setup_integration(
+    hass: HomeAssistant,
+    simple_room_motion: str | None = "on",
+    simple_room_light: str | None = "off",
 ) -> HomeAssistant:
-    """Set up the integration with test config and pre-create external entities."""
+    """Set up the integration with test config and pre-create external entities.
+
+    `simple_room_motion` and `simple_room_light` are the states those start
+    in, or None to leave them out, as when their integration hasn't loaded.
+    """
     # Pre-create external entities that the integration reads from.
     # Motion sensors start "on" to avoid creating occupancy timeout timers
     # during setup. Individual tests change states as needed.
     hass.states.async_set(PERSON_USER_A, "home")
-    hass.states.async_set(SIMPLE_ROOM_MOTION, "on")
+    if simple_room_motion is not None:
+        hass.states.async_set(SIMPLE_ROOM_MOTION, simple_room_motion)
     hass.states.async_set(BEDSIDE_MOTION, "on")
-    hass.states.async_set(SIMPLE_ROOM_LIGHT, "off")
+    if simple_room_light is not None:
+        hass.states.async_set(SIMPLE_ROOM_LIGHT, simple_room_light)
     hass.states.async_set(BEDSIDE_LIGHT, "off")
 
     # Allow HA to discover our custom component
@@ -369,3 +376,11 @@ async def integration(
     await flush(hass)
 
     return hass
+
+
+@pytest.fixture
+async def integration(
+    hass: HomeAssistant, light_service_calls: list[ServiceCall]
+) -> HomeAssistant:
+    """The integration, set up with every external entity in a normal state."""
+    return await setup_integration(hass)
