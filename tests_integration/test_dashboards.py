@@ -401,7 +401,7 @@ def _links(view: dict[str, Any]) -> list[str]:
     """Every navigation from a view's grids and floor plans."""
     found = []
     for card in _cards(view):
-        children = card.get("cards", card.get("elements", []))
+        children = card.get("cards", card.get("config", {}).get("rules", []))
         found += [
             child["tap_action"]["navigation_path"]
             for child in children
@@ -458,23 +458,12 @@ async def test_the_subviews_are_made_of_the_fragments(
 
 # --- Rooms on a floor plan ---
 
-# Living and a pantry on the plan; the bedroom isn't on it.
-PLAN = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10">
-  <g id="rooms">
-    <g id="room-living">
-      <path class="room" d="M0,0 L10,0 L10,10 L0,10 Z"/>
-      <text class="temp" id="temp-living" x="5" y="4.9">--</text>
-    </g>
-    <g id="room-pantry">
-      <path class="room" d="M10,0 L20,0 L20,10 L10,10 Z"/>
-      <text class="temp" id="temp-pantry" x="15" y="5.3">--</text>
-    </g>
-    <g id="room-nowhere">
-      <path class="room" d="M0,0 L1,0 L1,1 Z"/>
-      <text class="temp" id="temp-nowhere" x="0" y="0">--</text>
-    </g>
-  </g>
-</svg>
+# Living and a pantry are on the plan; the bedroom isn't on it.
+PLAN_AREAS = """\
+image: /local/floorplan/ground.svg
+areas:
+  living: { room: living }
+  pantry: { room: pantry }
 """
 
 
@@ -482,16 +471,17 @@ PLAN = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10">
 async def with_plan(
     hass: HomeAssistant, light_service_calls: list[ServiceCall], tmp_path: Any
 ) -> HomeAssistant:
-    """with_rooms, with a pantry area that has no light configs, and the plan
-    above as "ground"."""
+    """with_rooms, with a pantry area that has no light configs, and the areas
+    above as the plan "ground"."""
     hass.config.config_dir = str(tmp_path)
     (tmp_path / "www" / "floorplan").mkdir(parents=True)
-    (tmp_path / "www" / "floorplan" / "ground.svg").write_text(PLAN)
+    (tmp_path / "www" / "floorplan" / "ground.yaml").write_text(PLAN_AREAS)
 
     areas = ar.async_get(hass)
     living = areas.async_create("Living", icon="mdi:sofa")
     bedroom = areas.async_create("Bedroom")
-    areas.async_create("Pantry", icon="mdi:fridge")
+    areas.async_create("Pantry")
+    assert living.id == "living"
     return await _setup_dashboards(
         hass,
         {"simple_room": living.id, "bedside_lamp": bedroom.id},
@@ -504,51 +494,38 @@ async def test_rooms_on_the_plan_are_on_it_and_the_rest_below(
 ) -> None:
     plan, others = _cards((await _debug(with_plan))["views"][0])[2:]
 
-    assert plan["type"] == "picture-elements"
+    assert plan["type"] == "custom:floorplan-card"
     assert plan["title"] == "Rooms"
-    assert plan["image"].startswith("/local/floorplan/ground.svg?v=")
+    assert plan["config"]["image"]["location"] == "/local/floorplan/ground.svg"
     assert others["title"] == "Other rooms"
     assert [r["name"] for r in others["cards"]] == ["Bedroom"]
 
 
-async def test_a_room_on_the_plan_is_its_icon_and_its_whole_shape(
+async def test_a_room_on_the_plan_opens_from_its_area(
     with_plan: HomeAssistant,
 ) -> None:
     plan = _cards((await _debug(with_plan))["views"][0])[2]
-    to_living = {
-        "action": "navigate",
-        "navigation_path": "/lovelace-debug/light-simple_room",
-    }
-    taps = [e for e in plan["elements"] if e["type"] == "image"]
-    icons = {e["icon"]: e for e in plan["elements"] if e["type"] == "icon"}
 
-    # The left half, as a square: half the width of a 2:1 plan is its height.
-    assert taps == [
+    assert plan["config"]["rules"] == [
         {
-            "type": "image",
-            "image": taps[0]["image"],
-            "aspect_ratio": "1.0000:1",
-            "tap_action": to_living,
-            "style": {"width": "50%", "left": "25%", "top": "50%"},
+            "element": "area-living",
+            "tap_action": {
+                "action": "navigate",
+                "navigation_path": "/lovelace-debug/light-simple_room",
+            },
         }
     ]
-    assert icons["mdi:sofa"]["tap_action"] == to_living
-    assert icons["mdi:sofa"]["style"]["left"] == "25%"
-    assert icons["mdi:sofa"]["style"]["top"] == "50%"
-    # Tap areas first, so the icons draw over them.
-    assert plan["elements"][0]["type"] == "image"
 
 
-async def test_a_room_on_the_plan_with_no_lights_is_a_grey_icon(
+async def test_an_area_on_the_plan_with_no_lights_is_greyed(
     with_plan: HomeAssistant,
 ) -> None:
     plan = _cards((await _debug(with_plan))["views"][0])[2]
-    icons = {e["icon"]: e for e in plan["elements"] if e["type"] == "icon"}
 
-    # The pantry greyed, and nothing for a room with no area.
-    assert set(icons) == {"mdi:sofa", "mdi:fridge"}
-    assert icons["mdi:fridge"]["tap_action"] == {"action": "none"}
-    assert icons["mdi:fridge"]["style"]["color"] != icons["mdi:sofa"]["style"]["color"]
+    [grey] = plan["config"]["startup_action"]
+    assert grey["service"] == "floorplan.style_set"
+    assert grey["service_data"]["elements"] == ["area-pantry"]
+    assert grey["service_data"]["style"].startswith("--area-fill:")
 
 
 async def test_every_link_on_the_plan_leads_back(with_plan: HomeAssistant) -> None:
@@ -567,4 +544,21 @@ async def test_a_missing_plan_leaves_the_rooms_as_buttons(
     cards = _cards((await _debug(hass))["views"][0])
 
     assert [c["title"] for c in cards] == ["People", "Groups", "Rooms"]
-    assert "Can't read floor plan 'ground'" in caplog.text
+    assert "Can't use floor plan 'ground'" in caplog.text
+
+
+async def test_a_plan_that_isnt_an_area_list_is_skipped(
+    hass: HomeAssistant,
+    light_service_calls: list[ServiceCall],
+    tmp_path: Any,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    hass.config.config_dir = str(tmp_path)
+    (tmp_path / "www" / "floorplan").mkdir(parents=True)
+    (tmp_path / "www" / "floorplan" / "ground.yaml").write_text("areas: [living]\n")
+    await _setup_dashboards(hass, floorplans=["ground"])
+
+    cards = _cards((await _debug(hass))["views"][0])
+
+    assert [c["title"] for c in cards] == ["People", "Groups", "Rooms"]
+    assert "Can't use floor plan 'ground'" in caplog.text

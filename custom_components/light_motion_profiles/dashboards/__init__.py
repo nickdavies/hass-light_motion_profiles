@@ -6,7 +6,6 @@ these cards (`custom:codegen-fragment`). The two generated dashboards are only
 these functions put together, so they cannot drift from the embedded copies.
 """
 
-import hashlib
 import logging
 import pathlib
 
@@ -14,6 +13,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Mapping, Set, Sequence
 
 import voluptuous as vol
+import yaml
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
@@ -26,20 +26,19 @@ from custom_components.lovelace_codegen import (
     ENTITY,
     Fragment,
     GeneratedDashboard,
+    FloorplanCard,
     GridCard,
-    IconElement,
     NAME,
     Params,
-    PictureElementsCard,
     Renderable,
     TileCard,
     VerticalStackCard,
     View,
+    floorplan_style_set,
+    floorplan_tap,
     navigate,
-    tap_area,
 )
 
-from ..floorplan import Floorplan, FloorplanError, parse as parse_floorplan
 from ..datatypes import (
     Config,
     Group,
@@ -446,55 +445,49 @@ def rooms(hass: HomeAssistant, lights: Mapping[str, LightGroup]) -> list[Room]:
 
 # --- Floor plans ---
 #
-# homelab-data draws each floor with every room as a `room-<area id>` group, the
-# same ids as the areas, and homelab serves it from www/floorplan/.
+# homelab-data draws each floor as www/floorplan/<floor>.svg, with every Home
+# Assistant area on it as an `area-<area id>` element to colour and tap, and
+# lists those areas beside it in www/floorplan/<floor>.yaml.
 
-# The plan's own room fill, behind an icon so that it hides the room's reading
-# placeholder, which the icon sits on.
-PLAN_ROOM_FILL = "#e8e4da"
-# An icon for a room with no light configs: the plan's wall grey.
-NO_LIGHTS_COLOR = "#9a9a9a"
+# An area with no light configs, over the plan's own room fill.
+NO_LIGHTS_FILL = "--area-fill: #cfcfcf"
+
+FLOORPLAN_AREAS_SCHEMA = vol.Schema(
+    {
+        vol.Required("image"): str,
+        vol.Required("areas"): {str: vol.Any(None, dict)},
+    },
+    extra=vol.ALLOW_EXTRA,
+)
 
 
 @dataclass(frozen=True)
-class LoadedFloorplan:
+class Floorplan:
     name: str
-    # Where the browser fetches it, with a version from its contents so a new
-    # plan isn't hidden behind the browser's cached copy of the old one.
-    url: str
-    plan: Floorplan
+    # Where the browser fetches the plan.
+    image: str
+    # The ids of the areas drawn on it.
+    areas: list[str]
 
 
-async def load_floorplan(hass: HomeAssistant, name: str) -> LoadedFloorplan | None:
-    """A floor plan from www/floorplan/, or None, with a warning, when it is
-    missing or not one homelab-data drew."""
-    path = pathlib.Path(hass.config.path("www", "floorplan", f"{name}.svg"))
+def area_element(area_id: str) -> str:
+    return f"area-{area_id}"
+
+
+async def load_floorplan(hass: HomeAssistant, name: str) -> Floorplan | None:
+    """A floor plan's areas from www/floorplan/<name>.yaml, or None, with a
+    warning, when it is missing or not what homelab-data writes."""
+    path = pathlib.Path(hass.config.path("www", "floorplan", f"{name}.yaml"))
+
+    def read() -> object:
+        return yaml.safe_load(path.read_text())
+
     try:
-        svg = await hass.async_add_executor_job(path.read_text)
-    except OSError as e:
-        _LOGGER.warning("Can't read floor plan %r at %s: %s", name, path, e)
+        data = FLOORPLAN_AREAS_SCHEMA(await hass.async_add_executor_job(read))
+    except (OSError, yaml.YAMLError, vol.Invalid) as e:
+        _LOGGER.warning("Can't use floor plan %r from %s: %s", name, path, e)
         return None
-    try:
-        plan = parse_floorplan(svg)
-    except FloorplanError as e:
-        _LOGGER.warning("Can't use floor plan %r at %s: %s", name, path, e)
-        return None
-    version = hashlib.sha256(svg.encode()).hexdigest()[:12]
-    return LoadedFloorplan(name, f"/local/floorplan/{name}.svg?v={version}", plan)
-
-
-def plan_icon_style(color: str) -> dict[str, str]:
-    """An icon on a plan: on a disc of the room's fill, and sized with the
-    screen, which a plan on the main view is about as wide as, so that it stays
-    clear of the room's name on a phone and visible on a large screen."""
-    return {
-        "--mdc-icon-size": "clamp(14px, 4vw, 32px)",
-        "color": color,
-        "background": PLAN_ROOM_FILL,
-        "border-radius": "50%",
-        "padding": "2px",
-        "display": "flex",
-    }
+    return Floorplan(name, data["image"], list(data["areas"]))
 
 
 # --- Everything, as one dashboard ---
@@ -505,17 +498,17 @@ class DebugDashboard(GeneratedDashboard):
     one's debug cards, then rooms, each opening a subview of its light configs.
     A room with only one light config opens that config's subview directly.
 
-    Rooms are found on the floor plans in the `floorplans` setting: each room
-    with light configs shows its area's icon there, and a tap anywhere in it
-    opens it. A room on a plan without light configs shows its icon greyed. Rooms
-    on no plan, or all of them without plans, are a grid of buttons.
+    Rooms are found on the floor plans in the `floorplans` setting, by their
+    area: a tap anywhere in a room with light configs opens it, and a room
+    without any is greyed. Rooms on no plan, or all of them without plans, are
+    a grid of buttons.
 
     The tiles show live state: a user's presence sensor takes the icon
     configured for its state, and a light config's automation sensor takes the
     icon of the profile it is applying.
 
-    Room names and icons are read from the area registry, and the floor plans
-    from www/floorplan/, when the dashboard is first rendered, so a change to
+    Room names and icons are read from the area registry, and the areas on each
+    floor plan from www/floorplan/, when the dashboard is first rendered, so a change to
     either shows after Home Assistant restarts.
     """
 
@@ -581,44 +574,26 @@ class DebugDashboard(GeneratedDashboard):
         return f"room-{room.key}"
 
     def _floorplan_card(
-        self, loaded: LoadedFloorplan, by_key: Mapping[str, Room], title: str
-    ) -> PictureElementsCard:
-        """The plan, with an icon on each room and the room itself to tap.
-
-        The tap areas come first so the icons draw over them.
-        """
-        areas = ar.async_get(self._hass)
-        plan = loaded.plan
-        taps: list[Renderable] = []
-        icons: list[Renderable] = []
-        for area_id, placed in plan.rooms.items():
-            room = by_key.get(area_id)
-            if room is None:
-                area = areas.async_get_area(area_id)
-                if area is not None:
-                    icons.append(
-                        IconElement(
-                            area.icon or DEFAULT_ROOM_ICON,
-                            *placed.anchor,
-                            tap_action={"action": "none"},
-                            style=plan_icon_style(NO_LIGHTS_COLOR),
-                        )
-                    )
-                continue
-            action = navigate(self._path(self._room_path(room)))
-            taps += [
-                tap_area(a.left, a.top, a.width, a.height, plan.aspect, action)
-                for a in placed.areas
-            ]
-            icons.append(
-                IconElement(
-                    room.icon,
-                    *placed.anchor,
-                    tap_action=action,
-                    style=plan_icon_style("var(--primary-color)"),
+        self, plan: Floorplan, by_key: Mapping[str, Room], title: str
+    ) -> FloorplanCard:
+        """The plan, where tapping a room with light configs opens it, and a
+        room without any is greyed."""
+        unlit = [area_element(a) for a in plan.areas if a not in by_key]
+        return FloorplanCard(
+            plan.image,
+            rules=[
+                floorplan_tap(
+                    area_element(area_id),
+                    navigate(self._path(self._room_path(by_key[area_id]))),
                 )
-            )
-        return PictureElementsCard(loaded.url, [*taps, *icons], title=title)
+                for area_id in plan.areas
+                if area_id in by_key
+            ],
+            startup_actions=[floorplan_style_set(unlit, NO_LIGHTS_FILL)]
+            if unlit
+            else [],
+            title=title,
+        )
 
     async def render(self) -> DBT:
         ug = self._config.users_groups
@@ -632,7 +607,7 @@ class DebugDashboard(GeneratedDashboard):
             for name in (settings.floorplans if settings is not None else [])
             if (plan := await load_floorplan(self._hass, name)) is not None
         ]
-        on_plans = {key for plan in loaded for key in plan.plan.rooms}
+        on_plans = {area_id for plan in loaded for area_id in plan.areas}
         plan_cards: list[Renderable] = [
             self._floorplan_card(
                 plan, by_key, "Rooms" if len(loaded) == 1 else display_name(plan.name)
