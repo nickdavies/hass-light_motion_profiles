@@ -7,13 +7,11 @@ these functions put together, so they cannot drift from the embedded copies.
 """
 
 import logging
-import pathlib
 
 from dataclasses import dataclass
 from typing import List, Dict, Mapping, Set, Sequence
 
 import voluptuous as vol
-import yaml
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
@@ -39,6 +37,7 @@ from custom_components.lovelace_codegen import (
     navigate,
 )
 
+from ..config.settings import Floorplan
 from ..datatypes import (
     Config,
     Group,
@@ -445,49 +444,16 @@ def rooms(hass: HomeAssistant, lights: Mapping[str, LightGroup]) -> list[Room]:
 
 # --- Floor plans ---
 #
-# homelab-data draws each floor as www/floorplan/<floor>.svg, with every Home
-# Assistant area on it as an `area-<area id>` element to colour and tap, and
-# lists those areas beside it in www/floorplan/<floor>.yaml.
+# homelab-data draws each floor with every Home Assistant area on it as an
+# `area-<area id>` element to colour and tap, and lists those areas in a file
+# that the `floorplans` setting `!include`s.
 
 # An area with no light configs, over the plan's own room fill.
 NO_LIGHTS_FILL = "--area-fill: #cfcfcf"
 
-FLOORPLAN_AREAS_SCHEMA = vol.Schema(
-    {
-        vol.Required("image"): str,
-        vol.Required("areas"): {str: vol.Any(None, dict)},
-    },
-    extra=vol.ALLOW_EXTRA,
-)
-
-
-@dataclass(frozen=True)
-class Floorplan:
-    name: str
-    # Where the browser fetches the plan.
-    image: str
-    # The ids of the areas drawn on it.
-    areas: list[str]
-
 
 def area_element(area_id: str) -> str:
     return f"area-{area_id}"
-
-
-async def load_floorplan(hass: HomeAssistant, name: str) -> Floorplan | None:
-    """A floor plan's areas from www/floorplan/<name>.yaml, or None, with a
-    warning, when it is missing or not what homelab-data writes."""
-    path = pathlib.Path(hass.config.path("www", "floorplan", f"{name}.yaml"))
-
-    def read() -> object:
-        return yaml.safe_load(path.read_text())
-
-    try:
-        data = FLOORPLAN_AREAS_SCHEMA(await hass.async_add_executor_job(read))
-    except (OSError, yaml.YAMLError, vol.Invalid) as e:
-        _LOGGER.warning("Can't use floor plan %r from %s: %s", name, path, e)
-        return None
-    return Floorplan(name, data["image"], list(data["areas"]))
 
 
 # --- Everything, as one dashboard ---
@@ -507,8 +473,8 @@ class DebugDashboard(GeneratedDashboard):
     configured for its state, and a light config's automation sensor takes the
     icon of the profile it is applying.
 
-    Room names and icons are read from the area registry, and the areas on each
-    floor plan from www/floorplan/, when the dashboard is first rendered, so a change to
+    Room names and icons are read from the area registry when the dashboard is
+    first rendered, so a change to
     either shows after Home Assistant restarts.
     """
 
@@ -602,17 +568,13 @@ class DebugDashboard(GeneratedDashboard):
         by_key = {room.key: room for room in by_room}
 
         settings = self._config.settings.dashboard
-        loaded = [
-            plan
-            for name in (settings.floorplans if settings is not None else [])
-            if (plan := await load_floorplan(self._hass, name)) is not None
-        ]
-        on_plans = {area_id for plan in loaded for area_id in plan.areas}
+        plans = settings.floorplans if settings is not None else []
+        on_plans = {area_id for plan in plans for area_id in plan.areas}
         plan_cards: list[Renderable] = [
             self._floorplan_card(
-                plan, by_key, "Rooms" if len(loaded) == 1 else display_name(plan.name)
+                plan, by_key, "Rooms" if len(plans) == 1 else display_name(plan.name)
             )
-            for plan in loaded
+            for plan in plans
         ]
         off_plans = [room for room in by_room if room.key not in on_plans]
         room_grids: list[Renderable] = []
@@ -628,7 +590,7 @@ class DebugDashboard(GeneratedDashboard):
                         for room in off_plans
                     ],
                     columns=self.COLUMNS,
-                    title="Other rooms" if loaded else "Rooms",
+                    title="Other rooms" if plans else "Rooms",
                 )
             )
 

@@ -136,24 +136,60 @@ class UserGroupSettings:
         )
 
 
+@dataclass(frozen=True)
+class Floorplan:
+    """One floor plan from homelab-data, as its `floorplan_areas_<floor>.yaml`
+    lists it: where the plan is served, and the ids of the areas drawn on it,
+    each an `area-<id>` element to colour and tap."""
+
+    name: str
+    image: str
+    areas: List[str]
+
+    FIELD_IMAGE = "image"
+    FIELD_AREAS = "areas"
+
+    @classmethod
+    def from_yaml(cls, name: str, data: Mapping[str, Any]) -> "Floorplan":
+        return cls(
+            name=name,
+            image=data[cls.FIELD_IMAGE],
+            areas=list(data[cls.FIELD_AREAS]),
+        )
+
+    @classmethod
+    def vol(cls) -> vol.Schema:
+        # Extra keys, in the file and on each area, are homelab-data's to add.
+        return vol.Schema(
+            {
+                vol.Required(cls.FIELD_IMAGE): cv.string,
+                vol.Required(cls.FIELD_AREAS): {cv.slug: vol.Any(None, dict)},
+            },
+            extra=vol.ALLOW_EXTRA,
+        )
+
+
 @dataclass
 class DashboardSettings:
-    # Floor plans the Debug dashboard places its rooms on, by name: homelab-data's
-    # `floorplan_<name>.svg`, which homelab serves as /local/floorplan/<name>.svg.
-    floorplans: List[str] = field(default_factory=list)
+    # Floor plans the Debug dashboard places its rooms on, by name, each the
+    # area list homelab-data generates for it, `!include`d.
+    floorplans: List[Floorplan] = field(default_factory=list)
 
     FIELD_FLOORPLANS = "floorplans"
 
     @classmethod
-    def from_yaml(cls, data: Mapping[str, List[str]] | None) -> "DashboardSettings":
-        return cls(floorplans=list((data or {}).get(cls.FIELD_FLOORPLANS, [])))
+    def from_yaml(cls, data: Mapping[str, Any] | None) -> "DashboardSettings":
+        plans = (data or {}).get(cls.FIELD_FLOORPLANS, {})
+        return cls(
+            floorplans=[Floorplan.from_yaml(name, plan) for name, plan in plans.items()]
+        )
 
     @classmethod
     def vol(cls) -> vol.Schema:
         return vol.Schema(
             vol.Any(
                 None,
-                {vol.Optional(cls.FIELD_FLOORPLANS): [cv.slug]},
+                {vol.Optional(cls.FIELD_FLOORPLANS): {cv.slug: Floorplan.vol()}},
             )
         )
 

@@ -48,7 +48,7 @@ def _entity_ids(node: Any) -> list[str]:
 async def _setup_dashboards(
     hass: HomeAssistant,
     areas: dict[str, str] | None = None,
-    floorplans: list[str] | None = None,
+    floorplans: dict[str, Any] | None = None,
 ) -> HomeAssistant:
     """Set the component up with the debug dashboards on, `areas` (light config
     name to area id) as the light configs' `area:` keys, and `floorplans` as the
@@ -459,24 +459,18 @@ async def test_the_subviews_are_made_of_the_fragments(
 # --- Rooms on a floor plan ---
 
 # Living and a pantry are on the plan; the bedroom isn't on it.
-PLAN_AREAS = """\
-image: /local/floorplan/ground.svg
-areas:
-  living: { room: living }
-  pantry: { room: pantry }
-"""
+PLAN_AREAS = {
+    "image": "/local/floorplan/ground.svg",
+    "areas": {"living": {"room": "living"}, "pantry": {"room": "pantry"}},
+}
 
 
 @pytest.fixture
 async def with_plan(
-    hass: HomeAssistant, light_service_calls: list[ServiceCall], tmp_path: Any
+    hass: HomeAssistant, light_service_calls: list[ServiceCall]
 ) -> HomeAssistant:
     """with_rooms, with a pantry area that has no light configs, and the areas
     above as the plan "ground"."""
-    hass.config.config_dir = str(tmp_path)
-    (tmp_path / "www" / "floorplan").mkdir(parents=True)
-    (tmp_path / "www" / "floorplan" / "ground.yaml").write_text(PLAN_AREAS)
-
     areas = ar.async_get(hass)
     living = areas.async_create("Living", icon="mdi:sofa")
     bedroom = areas.async_create("Bedroom")
@@ -485,7 +479,7 @@ async def with_plan(
     return await _setup_dashboards(
         hass,
         {"simple_room": living.id, "bedside_lamp": bedroom.id},
-        floorplans=["ground"],
+        floorplans={"ground": PLAN_AREAS},
     )
 
 
@@ -532,33 +526,16 @@ async def test_every_link_on_the_plan_leads_back(with_plan: HomeAssistant) -> No
     await _assert_links_lead_to_subviews_that_lead_back(with_plan)
 
 
-async def test_a_missing_plan_leaves_the_rooms_as_buttons(
-    hass: HomeAssistant,
-    light_service_calls: list[ServiceCall],
-    tmp_path: Any,
-    caplog: pytest.LogCaptureFixture,
+async def test_a_plan_that_isnt_an_area_list_fails_setup(
+    hass: HomeAssistant, light_service_calls: list[ServiceCall]
 ) -> None:
-    hass.config.config_dir = str(tmp_path)
-    await _setup_dashboards(hass, floorplans=["ground"])
+    """The area list is config, so a bad one is a config error, not a plan
+    quietly left off the dashboard."""
+    config = copy.deepcopy(TEST_CONFIG)
+    config[DOMAIN]["settings"]["debug_dashboard"] = {
+        "floorplans": {"ground": {"areas": ["living"]}}
+    }
+    hass.data.pop(DATA_CUSTOM_COMPONENTS, None)
+    _ensure_custom_components_path()
 
-    cards = _cards((await _debug(hass))["views"][0])
-
-    assert [c["title"] for c in cards] == ["People", "Groups", "Rooms"]
-    assert "Can't use floor plan 'ground'" in caplog.text
-
-
-async def test_a_plan_that_isnt_an_area_list_is_skipped(
-    hass: HomeAssistant,
-    light_service_calls: list[ServiceCall],
-    tmp_path: Any,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    hass.config.config_dir = str(tmp_path)
-    (tmp_path / "www" / "floorplan").mkdir(parents=True)
-    (tmp_path / "www" / "floorplan" / "ground.yaml").write_text("areas: [living]\n")
-    await _setup_dashboards(hass, floorplans=["ground"])
-
-    cards = _cards((await _debug(hass))["views"][0])
-
-    assert [c["title"] for c in cards] == ["People", "Groups", "Rooms"]
-    assert "Can't use floor plan 'ground'" in caplog.text
+    assert not await async_setup_component(hass, DOMAIN, config)
