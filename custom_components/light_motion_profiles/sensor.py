@@ -21,15 +21,17 @@ from homeassistant.helpers.event import (
     async_track_point_in_utc_time,
     async_track_state_change_event,
 )
-from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
+from homeassistant.core import (
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+    callback,
+)
 from homeassistant.components.sensor import SensorEntity, DOMAIN as SENSOR_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import (
-    ExtraStoredData,
-    RestoredExtraData,
-    RestoreEntity,
-)
+from homeassistant.helpers.start import async_at_started
 
 from . import GROUP_SEPARATOR
 from .datatypes import (
@@ -46,9 +48,10 @@ from .datatypes import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# The states a light has once its integration has loaded it and it has
-# reported in; `unavailable` and `unknown` are neither.
-_LIGHT_REAL_STATES = (STATE_ON, STATE_OFF)
+
+def _unavailable(state: State | None) -> bool:
+    """Whether service calls to an entity in this state are dropped."""
+    return state is None or state.state == STATE_UNAVAILABLE
 
 
 async def async_setup_platform(
@@ -280,17 +283,16 @@ class GroupPresenceSensor(CalculatedSensor[str], SensorEntity):
         return self.serialize(states)
 
 
-class RoomOccupancyEntity(CalculatedSensor[str], SensorEntity, RestoreEntity):
+class RoomOccupancyEntity(CalculatedSensor[str], SensorEntity):
     """A room's occupancy, from its motion sensor and a no-motion timeout.
 
-    The state and the time the room goes empty survive a restart. Otherwise
-    every room would come back up as `occupied_timeout` with a whole new
-    timeout, because a motion sensor coming back as `off` looks like motion
-    that just ended, and lights left on in an empty room would wait out
-    that timeout again before turning off.
+    It starts unknown, as nothing about the room is known after a restart:
+    motion while Home Assistant was down was never seen. Until motion is
+    seen, a light that is on means the room was in use, so it goes to
+    `occupied_timeout`; a light that is off, or hasn't reported, is left
+    alone. Either way, with no motion for one timeout after Home Assistant
+    has started, the room is empty.
     """
-
-    _DEADLINE_KEY = "no_motion_deadline"
 
     def __init__(self, config: LightGroup, settings: RoomSettings) -> None:
         super().__init__()
@@ -301,13 +303,14 @@ class RoomOccupancyEntity(CalculatedSensor[str], SensorEntity, RestoreEntity):
         self._attr_name = entity.name
         self._attr_unique_id = entity.name
         self._no_motion_cb_cancel: Callable[[], None] | None = None
-        self._no_motion_deadline: datetime | None = None
 
         self._motion_entity = config.motion_sensor_entity.entity
+        self._light_entity = config.lights.entity
         self._no_motion_timeout = timedelta(seconds=config.occupancy_timeout.value)
 
         self._dependent_entities = [
             self._motion_entity,
+            self._light_entity,
         ]
 
         self._state_occupied = settings.occupancy_states.occupied
@@ -318,88 +321,56 @@ class RoomOccupancyEntity(CalculatedSensor[str], SensorEntity, RestoreEntity):
         def on_remove() -> None:
             self._cancel_no_motion_timer()
 
+        @callback
+        def start_timeout(hass: HomeAssistant) -> None:
+            # Timed from here, not from being added: motion can't be seen
+            # while Home Assistant is still starting.
+            if self._attr_native_value != self._state_occupied:
+                self._cancel_no_motion_timer()
+                self._start_no_motion_timer()
+
         self.async_on_remove(on_remove)
-        await self._async_restore()
-        return await super().async_added_to_hass()
+        await super().async_added_to_hass()
+        self.async_on_remove(async_at_started(self.hass, start_timeout))
 
-    @property
-    def extra_restore_state_data(self) -> ExtraStoredData:
-        deadline = self._no_motion_deadline
-        return RestoredExtraData(
-            {self._DEADLINE_KEY: deadline.isoformat() if deadline else None}
-        )
-
-    async def _async_restore(self) -> None:
-        last_state = await self.async_get_last_state()
-        if last_state is None:
-            return
-        state = last_state.state
-        if state == self._state_occupied:
-            # When motion stopped isn't known, so this carries on as occupied
-            # and the timeout starts once the sensor reports no motion.
-            self._attr_native_value = state
-        elif state == self._state_empty:
-            self._attr_native_value = state
-        elif state == self._state_occupied_timeout:
-            deadline = None
-            if (extra := await self.async_get_last_extra_data()) is not None:
-                raw = extra.as_dict().get(self._DEADLINE_KEY)
-                deadline = dt_util.parse_datetime(raw) if raw else None
-            if deadline is None:
-                # No deadline saved: start the timeout over, as before.
-                return
-            if deadline <= dt_util.utcnow():
-                self._attr_native_value = self._state_empty
-            else:
-                self._attr_native_value = state
-                self._start_no_motion_timer(deadline)
-        _LOGGER.info(f"restored {self._attr_name}={self._attr_native_value}")
-
-    def _start_no_motion_timer(self, deadline: datetime) -> None:
-        self._no_motion_deadline = deadline
+    def _start_no_motion_timer(self) -> None:
         self._no_motion_cb_cancel = async_track_point_in_utc_time(
-            self.hass, self._no_motion_callback, deadline
+            self.hass,
+            self._no_motion_callback,
+            dt_util.utcnow() + self._no_motion_timeout,
         )
 
     def _cancel_no_motion_timer(self) -> None:
         if self._no_motion_cb_cancel is not None:
             self._no_motion_cb_cancel()
             self._no_motion_cb_cancel = None
-        self._no_motion_deadline = None
 
     def _no_motion_callback(self, dt: datetime) -> None:
         _LOGGER.warning(f"No motion callback {self._attr_name}")
         self._no_motion_cb_cancel = None
-        self._no_motion_deadline = None
         self._apply_and_save_state(self._state_empty)
 
     def _force_update(self, event: Any) -> None:
         motion_state = self.hass.states.get(self._motion_entity)
-        if motion_state is None:
-            return
-        motion_state = motion_state.state
+        motion = motion_state.state if motion_state is not None else None
+        current = self._attr_native_value
 
-        new_state = None
-        if motion_state == STATE_ON:
-            # If we detect motion we cancel the callback if it exists
+        if motion == STATE_ON:
             self._cancel_no_motion_timer()
             new_state = self._state_occupied
-        elif motion_state == STATE_OFF:
-            # If we we don't see motion but already have a callback we do nothing
-            if self._no_motion_cb_cancel:
+        elif current is None:
+            # No motion seen since starting: only a light that is on says
+            # anything, and the timer started at startup ends this.
+            light_state = self.hass.states.get(self._light_entity)
+            if light_state is None or light_state.state != STATE_ON:
                 return
-
-            # An empty room stays empty: no motion is only news after motion.
-            # This is what keeps a restored empty room from starting a
-            # timeout when its sensor comes back as off.
-            if self._attr_native_value == self._state_empty:
-                return
-
-            # Otherwise we schedule the callback
-            self._start_no_motion_timer(dt_util.utcnow() + self._no_motion_timeout)
+            new_state = self._state_occupied_timeout
+        elif motion == STATE_OFF and current == self._state_occupied:
+            self._start_no_motion_timer()
             new_state = self._state_occupied_timeout
         else:
-            _LOGGER.warning(f"Unknown state for motion entity {motion_state}")
+            # Off in any other state is no news, nor is the sensor dropping
+            # out, and the light only matters at startup.
             return
 
         _LOGGER.info(f"new_state for {self._attr_name}={new_state}")
@@ -495,24 +466,19 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
     async def async_added_to_hass(self) -> None:
         @callback
         def light_change(event: Event[EventStateChangedData]) -> None:
-            # Re-apply the current profile once the light has a real state
-            # again. A call made while it was unavailable (as every light is
-            # while Home Assistant starts, until its integration loads) is
-            # dropped by Home Assistant, and the rule sensor doesn't change
-            # when the light comes back, so nothing else would send it.
-            # Only the move from no state to a state counts: on/off changes
-            # are left alone, so a light turned on by hand stays on.
-            old_state = event.data["old_state"]
-            new_state = event.data["new_state"]
-            if new_state is None or new_state.state not in _LIGHT_REAL_STATES:
-                return
-            if old_state is not None and old_state.state in _LIGHT_REAL_STATES:
-                return
-            _LOGGER.info(
-                f"{self._light_entity} is now {new_state.state}, re-applying "
-                f"automation {self._attr_name}"
-            )
-            self._force_update(event)
+            # Re-apply the current profile once the light can take calls
+            # again. Calls aren't made while it is unavailable (as every
+            # light is while Home Assistant starts, until its integration
+            # loads), and the rule sensor doesn't change when the light comes
+            # back, so nothing else would send it. Only leaving unavailable
+            # counts: a light changed by hand is left as it is.
+            if _unavailable(event.data["old_state"]) and not _unavailable(
+                event.data["new_state"]
+            ):
+                _LOGGER.info(
+                    f"{self._light_entity} is back, re-applying {self._attr_name}"
+                )
+                self._force_update(event)
 
         self.async_on_remove(
             async_track_state_change_event(self.hass, self._light_entity, light_change)
@@ -557,10 +523,10 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
         super()._apply_state(display_name)
 
         light_state = self.hass.states.get(self._light_entity)
-        if light_state is None or light_state.state == STATE_UNAVAILABLE:
+        if _unavailable(light_state):
             # Home Assistant drops service calls to unavailable entities, so
             # there's no point calling one. The light's own listener
-            # re-applies this once the light has a state.
+            # re-applies this once the light can take calls.
             _LOGGER.debug(
                 f"not updating {self._light_entity} for automation "
                 f"{self._attr_name}: it is unavailable"

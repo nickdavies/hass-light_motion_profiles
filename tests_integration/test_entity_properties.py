@@ -24,6 +24,7 @@ from .conftest import (
     USER_B_STATE,
     SIMPLE_ROOM_MOTION,
     SIMPLE_ROOM_LIGHT,
+    BEDSIDE_MOTION,
     PERSON_USER_A,
     flush,
     set_select,
@@ -108,6 +109,7 @@ async def entity_integration(
     # Pre-create external entities
     hass.states.async_set(PERSON_USER_A, "home")
     hass.states.async_set(SIMPLE_ROOM_MOTION, "on")
+    hass.states.async_set(BEDSIDE_MOTION, "on")
     hass.states.async_set(SIMPLE_ROOM_LIGHT, "off")
 
     # Pre-create the input_number entities that profiles reference
