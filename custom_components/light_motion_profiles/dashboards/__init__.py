@@ -2,7 +2,7 @@
 
 Each card is built by one function, and each function is also registered with
 lovelace_codegen as a fragment, so a hand-written dashboard can embed any of
-these cards (`custom:codegen-fragment`). The two generated dashboards are only
+these cards (`custom:codegen-fragment`). The generated dashboards are only
 these functions put together, so they cannot drift from the embedded copies.
 """
 
@@ -444,6 +444,93 @@ def rooms(hass: HomeAssistant, lights: Mapping[str, LightGroup]) -> list[Room]:
     return found
 
 
+# --- The details behind the Debug dashboard ---
+#
+# The Debug dashboard itself is hand-written in hass-configs, where cards from
+# several components and homelab-data sit side by side. What it can't write by
+# hand is anything there is one of per light config, user or group, so those
+# pages are generated here, on a dashboard of their own, and the cards that
+# lead to them are fragments. Their paths are how hass-configs links here, so
+# they are kept stable.
+#
+# No page sets a back path: the back arrow goes back in browser history, to
+# whichever dashboard the link was followed from.
+
+DETAILS_URL_PATH = "debug-details"
+DETAILS_COLUMNS = 4
+
+
+def details_path(view: str) -> str:
+    """A view on the Debug details dashboard, as a navigation path."""
+    return f"/{DETAILS_URL_PATH}/{view}"
+
+
+def room_view(room: Room) -> str:
+    return f"room-{room.key}"
+
+
+def user_view(name: str) -> str:
+    return f"user-{name}"
+
+
+def group_view(name: str) -> str:
+    return f"group-{name}"
+
+
+PEOPLE_VIEW = "people"
+KILLSWITCHES_VIEW = "killswitches"
+
+
+def _tile(entity: str, name: str, view: str, icon: str | None = None) -> TileCard:
+    return TileCard(
+        entity,
+        name=display_name(name),
+        icon=icon,
+        vertical=True,
+        tap_action=navigate(details_path(view)),
+    )
+
+
+def people_card(ug_config: UsersGroups) -> GridCard:
+    """A tile per user, showing their presence, each opening their page."""
+    return GridCard(
+        [
+            _tile(user.presence_entity.full, name, user_view(name))
+            for name, user in ug_config.users.items()
+        ],
+        columns=DETAILS_COLUMNS,
+        title="People",
+    )
+
+
+def groups_card(ug_config: UsersGroups) -> GridCard:
+    """A tile per group, showing its presence, each opening its page."""
+    return GridCard(
+        [
+            _tile(
+                group.presence_entity.full,
+                name,
+                group_view(name),
+                icon="mdi:account-group",
+            )
+            for name, group in ug_config.groups.items()
+        ],
+        columns=DETAILS_COLUMNS,
+        title="Groups",
+    )
+
+
+def people_page_cards(config: Config) -> list[Renderable]:
+    """Everything about presence: who, which groups, and what is published."""
+    cards: list[Renderable] = [
+        people_card(config.users_groups),
+        groups_card(config.users_groups),
+    ]
+    if config.presence_outputs:
+        cards.append(presence_outputs_card(config.presence_outputs))
+    return cards
+
+
 # --- Floor plans ---
 #
 # homelab-data draws each floor with every Home Assistant area on it as an
@@ -500,13 +587,52 @@ def _entities_template(entity_ids: Sequence[str]) -> str:
     return "[" + ", ".join(f"entities['{e}']" for e in entity_ids) + "]"
 
 
-# --- Everything, as one dashboard ---
+def _room_rules(config: Config, room: Room) -> list[dict[str, Any]]:
+    """A room on a plan: coloured by its lights, its text the profiles its
+    configs apply, and a tap opening it."""
+    configs = [config.lights[name] for name in room.lights]
+    lights = list(dict.fromkeys(c.lights.entity for c in configs))
+    profiles = [c.light_automation_entity.full for c in configs]
+    return [
+        floorplan_on_state(
+            [*lights, *profiles],
+            [
+                floorplan_style_set(
+                    [area_element(room.key)],
+                    f"${{functions.fill({_entities_template(lights)})}}",
+                ),
+                floorplan_text_set(
+                    area_value_element(room.key),
+                    f"${{functions.profiles({_entities_template(profiles)})}}",
+                ),
+            ],
+        ),
+        floorplan_tap(area_element(room.key), navigate(details_path(room_view(room)))),
+    ]
 
 
-class DebugDashboard(GeneratedDashboard):
-    """Rooms, each opening a subview with every one of its light configs' cards,
-    one config after another, then people and groups as grids of tiles, each
-    opening a subview with that one's debug cards.
+def _floorplan_card(
+    config: Config, plan: Floorplan, by_key: Mapping[str, Room], title: str
+) -> FloorplanCard:
+    """The plan, where a room with light configs shows them and opens on a
+    tap, and a room without any is greyed."""
+    unlit = [area_element(a) for a in plan.areas if a not in by_key]
+    return FloorplanCard(
+        plan.image,
+        rules=[
+            rule
+            for area_id in plan.areas
+            if area_id in by_key
+            for rule in _room_rules(config, by_key[area_id])
+        ],
+        startup_actions=[floorplan_style_set(unlit, NO_LIGHTS_FILL)] if unlit else [],
+        title=title,
+        functions=ROOM_FUNCTIONS,
+    )
+
+
+def rooms_card(hass: HomeAssistant, config: Config) -> VerticalStackCard:
+    """Every room with light configs, each opening its page.
 
     Rooms are found on the floor plans in the `floorplans` setting, by their
     area: a tap anywhere in a room with light configs opens it, and a room
@@ -515,15 +641,79 @@ class DebugDashboard(GeneratedDashboard):
     is the profile each of its configs is applying, one line per profile. Rooms
     on no plan, or all of them without plans, are a grid of buttons.
 
-    The tiles show live state: a user's presence sensor takes the icon
-    configured for its state.
-
-    Room names and icons are read from the area registry when the dashboard is
-    first rendered, so a change to
-    either shows after Home Assistant restarts.
+    Room names and icons come from the area registry, so a change to either
+    shows on the next render.
     """
+    by_room = rooms(hass, config.lights)
+    by_key = {room.key: room for room in by_room}
 
-    COLUMNS = 4
+    settings = config.settings.dashboard
+    plans = settings.floorplans if settings is not None else []
+    on_plans = {area_id for plan in plans for area_id in plan.areas}
+    cards: list[Renderable] = [
+        _floorplan_card(
+            config,
+            plan,
+            by_key,
+            "Rooms" if len(plans) == 1 else display_name(plan.name),
+        )
+        for plan in plans
+    ]
+    off_plans = [room for room in by_room if room.key not in on_plans]
+    if off_plans:
+        cards.append(
+            GridCard(
+                [
+                    ButtonCard(
+                        room.name,
+                        room.icon,
+                        tap_action=navigate(details_path(room_view(room))),
+                    )
+                    for room in off_plans
+                ],
+                columns=DETAILS_COLUMNS,
+                title="Other rooms" if plans else "Rooms",
+            )
+        )
+    return VerticalStackCard(cards=cards)
+
+
+def details_fragments(hass: HomeAssistant, config: Config) -> list[Fragment]:
+    """The cards that lead into the Debug details dashboard, so only offered
+    with it."""
+    return [
+        Fragment(
+            "rooms",
+            lambda params: rooms_card(hass, config),
+            description="Each room on the floor plans, opening its light configs",
+        ),
+        Fragment(
+            "people",
+            lambda params: people_card(config.users_groups),
+            description="A tile per user, opening every input to their presence",
+        ),
+        Fragment(
+            "groups",
+            lambda params: groups_card(config.users_groups),
+            description="A tile per group, opening it and its members",
+        ),
+    ]
+
+
+class DebugDetailsDashboard(GeneratedDashboard):
+    """The pages behind hass-configs' Debug dashboard, off the sidebar.
+
+    - main: the rooms (the `rooms` fragment), so the dashboard opened on its
+      own still leads everywhere;
+    - people: the `people` and `groups` tiles, then the presence outputs;
+    - killswitches: every killswitch;
+    - a page per room, with each of its light configs' cards, one config after
+      another; per user, with every input to their presence; and per group,
+      with its presence and each member's.
+
+    It is rendered the first time it is opened, then cached until Home
+    Assistant restarts.
+    """
 
     def __init__(self, hass: HomeAssistant, config: Config) -> None:
         self._hass = hass
@@ -531,43 +721,23 @@ class DebugDashboard(GeneratedDashboard):
 
     @property
     def title(self) -> str:
-        return "Debug"
+        return "Debug details"
 
     @property
     def url_path(self) -> str:
-        return "lovelace-debug"
+        return DETAILS_URL_PATH
 
-    def _path(self, view: str) -> str:
-        return f"/{self.url_path}/{view}"
+    @property
+    def show_in_sidebar(self) -> bool:
+        return False
 
-    def _subview(
-        self,
-        title: str,
-        path: str,
-        cards: Sequence[Renderable],
-        back: str = "main",
-    ) -> View:
+    def _subview(self, title: str, path: str, cards: Sequence[Renderable]) -> View:
         return View(
             title=title,
             path=path,
             subview=True,
-            back_path=self._path(back),
             cards=[VerticalStackCard(cards=cards)],
         )
-
-    def _tile(
-        self, entity: str, name: str, path: str, icon: str | None = None
-    ) -> TileCard:
-        return TileCard(
-            entity,
-            name=display_name(name),
-            icon=icon,
-            vertical=True,
-            tap_action=navigate(self._path(path)),
-        )
-
-    def _room_path(self, room: Room) -> str:
-        return f"room-{room.key}"
 
     def _room_subview(self, room: Room) -> View:
         """Each of the room's light configs' cards, one config after another."""
@@ -578,132 +748,29 @@ class DebugDashboard(GeneratedDashboard):
                 light_config_card(name, light),
                 manual_lights_card(self._hass, name, light),
             ]
-        return self._subview(room.name, self._room_path(room), cards)
-
-    def _room_rules(self, room: Room) -> list[dict[str, Any]]:
-        """A room on a plan: coloured by its lights, its text the profiles its
-        configs apply, and a tap opening it."""
-        configs = [self._config.lights[name] for name in room.lights]
-        lights = list(dict.fromkeys(c.lights.entity for c in configs))
-        profiles = [c.light_automation_entity.full for c in configs]
-        return [
-            floorplan_on_state(
-                [*lights, *profiles],
-                [
-                    floorplan_style_set(
-                        [area_element(room.key)],
-                        f"${{functions.fill({_entities_template(lights)})}}",
-                    ),
-                    floorplan_text_set(
-                        area_value_element(room.key),
-                        f"${{functions.profiles({_entities_template(profiles)})}}",
-                    ),
-                ],
-            ),
-            floorplan_tap(
-                area_element(room.key), navigate(self._path(self._room_path(room)))
-            ),
-        ]
-
-    def _floorplan_card(
-        self, plan: Floorplan, by_key: Mapping[str, Room], title: str
-    ) -> FloorplanCard:
-        """The plan, where a room with light configs shows them and opens on a
-        tap, and a room without any is greyed."""
-        unlit = [area_element(a) for a in plan.areas if a not in by_key]
-        return FloorplanCard(
-            plan.image,
-            rules=[
-                rule
-                for area_id in plan.areas
-                if area_id in by_key
-                for rule in self._room_rules(by_key[area_id])
-            ],
-            startup_actions=[floorplan_style_set(unlit, NO_LIGHTS_FILL)]
-            if unlit
-            else [],
-            title=title,
-            functions=ROOM_FUNCTIONS,
-        )
+        return self._subview(room.name, room_view(room), cards)
 
     async def render(self) -> DBT:
         ug = self._config.users_groups
-        lights = self._config.lights
-        by_room = rooms(self._hass, lights)
-        by_key = {room.key: room for room in by_room}
-
-        settings = self._config.settings.dashboard
-        plans = settings.floorplans if settings is not None else []
-        on_plans = {area_id for plan in plans for area_id in plan.areas}
-        plan_cards: list[Renderable] = [
-            self._floorplan_card(
-                plan, by_key, "Rooms" if len(plans) == 1 else display_name(plan.name)
-            )
-            for plan in plans
+        views = [
+            View(
+                title=self.title,
+                path="main",
+                cards=[rooms_card(self._hass, self._config)],
+            ),
+            self._subview("People", PEOPLE_VIEW, people_page_cards(self._config)),
+            self._subview(
+                "Killswitches", KILLSWITCHES_VIEW, [killswitches_card(self._config)]
+            ),
         ]
-        off_plans = [room for room in by_room if room.key not in on_plans]
-        room_grids: list[Renderable] = []
-        if off_plans:
-            room_grids.append(
-                GridCard(
-                    [
-                        ButtonCard(
-                            room.name,
-                            room.icon,
-                            tap_action=navigate(self._path(self._room_path(room))),
-                        )
-                        for room in off_plans
-                    ],
-                    columns=self.COLUMNS,
-                    title="Other rooms" if plans else "Rooms",
-                )
-            )
-
-        main = View(
-            title=self.title,
-            path="main",
-            cards=[
-                VerticalStackCard(
-                    cards=[
-                        *plan_cards,
-                        *room_grids,
-                        GridCard(
-                            [
-                                self._tile(
-                                    user.presence_entity.full, name, f"user-{name}"
-                                )
-                                for name, user in ug.users.items()
-                            ],
-                            columns=self.COLUMNS,
-                            title="People",
-                        ),
-                        GridCard(
-                            [
-                                self._tile(
-                                    group.presence_entity.full,
-                                    name,
-                                    f"group-{name}",
-                                    icon="mdi:account-group",
-                                )
-                                for name, group in ug.groups.items()
-                            ],
-                            columns=self.COLUMNS,
-                            title="Groups",
-                        ),
-                    ]
-                )
-            ],
-        )
-
-        views = [main]
         views += [
-            self._subview(display_name(name), f"user-{name}", [user_card(name, user)])
+            self._subview(display_name(name), user_view(name), [user_card(name, user)])
             for name, user in ug.users.items()
         ]
         views += [
             self._subview(
                 display_name(name),
-                f"group-{name}",
+                group_view(name),
                 [
                     group_card(ug, name, group),
                     *(user_card(m, ug.users[m]) for m in group_members(ug, group)),
@@ -711,5 +778,7 @@ class DebugDashboard(GeneratedDashboard):
             )
             for name, group in ug.groups.items()
         ]
-        views += [self._room_subview(room) for room in by_room]
+        views += [
+            self._room_subview(room) for room in rooms(self._hass, self._config.lights)
+        ]
         return Dashboard(views).render()
