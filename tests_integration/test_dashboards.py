@@ -15,6 +15,7 @@ from homeassistant.setup import async_setup_component
 
 from .conftest import (
     BEDSIDE_AUTOMATION,
+    EVERYONE_ANY_AWAKE,
     BEDSIDE_LIGHT,
     BEDSIDE_MOTION,
     DOMAIN,
@@ -82,7 +83,7 @@ async def with_dashboards(
 
 
 @pytest.mark.parametrize(
-    "url_path", ["presence-debug", "motion-debug", "lovelace-debug"]
+    "url_path", ["presence-debug", "motion-debug", "debug-details"]
 )
 async def test_the_dashboard_registers_and_renders(
     with_dashboards: HomeAssistant, url_path: str
@@ -100,7 +101,7 @@ async def test_every_entity_on_the_dashboards_exists(
     """A card naming an entity the component never created renders as a blank
     row nobody notices."""
     missing = set()
-    for url_path in ("presence-debug", "motion-debug", "lovelace-debug"):
+    for url_path in ("presence-debug", "motion-debug", "debug-details"):
         dashboard = with_dashboards.data["lovelace"].dashboards[url_path]
         for entity_id in _entity_ids(await dashboard.async_load(False)):
             if with_dashboards.states.get(entity_id) is None:
@@ -156,6 +157,16 @@ async def test_fragments_are_registered_without_the_dashboards(
         "user",
         "users_groups",
     ]
+
+
+async def test_the_fragments_into_debug_details_come_with_it(
+    with_dashboards: HomeAssistant,
+) -> None:
+    """rooms, people and groups link to its pages, so they would lead nowhere
+    without it."""
+    assert {"groups", "people", "rooms"} <= set(
+        _registry(with_dashboards).names(DOMAIN)
+    )
 
 
 async def test_every_entity_in_every_fragment_exists(
@@ -274,11 +285,11 @@ async def test_manual_lights_on_a_single_light(integration: HomeAssistant) -> No
     ]
 
 
-# --- The merged Debug dashboard ---
+# --- Debug details, the pages behind hass-configs' Debug dashboard ---
 
 
 async def _debug(hass: HomeAssistant) -> dict[str, Any]:
-    dashboard = hass.data["lovelace"].dashboards["lovelace-debug"]
+    dashboard = hass.data["lovelace"].dashboards["debug-details"]
     return await dashboard.async_load(False)
 
 
@@ -303,20 +314,56 @@ async def with_rooms(
     )
 
 
-async def test_debug_has_rooms_then_people_and_groups(
-    with_rooms: HomeAssistant,
+async def test_debug_details_is_off_the_sidebar(
+    with_dashboards: HomeAssistant,
 ) -> None:
+    """hass-configs' Debug dashboard is the way in; this is what it links to."""
+    dashboard = with_dashboards.data["lovelace"].dashboards["debug-details"]
+
+    assert dashboard.config["show_in_sidebar"] is False
+    assert dashboard.config["title"] == "Debug details"
+
+
+async def test_debug_details_opens_on_the_rooms(with_rooms: HomeAssistant) -> None:
     main = (await _debug(with_rooms))["views"][0]
-    grids = _cards(main)
 
     assert main["path"] == "main"
-    assert [g["title"] for g in grids] == ["Rooms", "People", "Groups"]
-    assert {g["columns"] for g in grids} == {4}
-    assert [t["entity"] for t in grids[1]["cards"]] == [
+    assert main["cards"] == [_render(with_rooms, "rooms")]
+    assert [g["title"] for g in _cards(main)] == ["Rooms"]
+
+
+async def test_people_is_people_then_groups_then_presence_outputs(
+    with_rooms: HomeAssistant,
+) -> None:
+    people = (await _views(with_rooms))["people"]
+    grids = _cards(people)
+
+    assert people["subview"] is True
+    assert grids == [
+        _render(with_rooms, "people"),
+        _render(with_rooms, "groups"),
+        _render(with_rooms, "presence_outputs"),
+    ]
+    assert [g["title"] for g in grids] == ["People", "Groups", "Presence outputs"]
+    assert [t["entity"] for t in grids[0]["cards"]] == [
         USER_A_PRESENCE,
         USER_B_PRESENCE,
     ]
-    assert [t["entity"] for t in grids[2]["cards"]] == [GROUP_PRESENCE]
+    assert [t["entity"] for t in grids[1]["cards"]] == [GROUP_PRESENCE]
+    assert EVERYONE_ANY_AWAKE in _entity_ids(grids[2])
+    assert [t["tap_action"]["navigation_path"] for t in grids[0]["cards"]] == [
+        "/debug-details/user-user_a",
+        "/debug-details/user-user_b",
+    ]
+
+
+async def test_killswitches_is_just_the_killswitches(
+    with_rooms: HomeAssistant,
+) -> None:
+    killswitches = (await _views(with_rooms))["killswitches"]
+
+    assert killswitches["subview"] is True
+    assert _cards(killswitches) == [_render(with_rooms, "killswitches")]
 
 
 async def test_rooms_come_from_areas_sorted_by_name(with_rooms: HomeAssistant) -> None:
@@ -327,8 +374,8 @@ async def test_rooms_come_from_areas_sorted_by_name(with_rooms: HomeAssistant) -
         ("button", "Living", "mdi:sofa"),
     ]
     assert [r["tap_action"]["navigation_path"] for r in rooms] == [
-        "/lovelace-debug/room-bedroom",
-        "/lovelace-debug/room-living",
+        "/debug-details/room-bedroom",
+        "/debug-details/room-living",
     ]
 
 
@@ -378,9 +425,8 @@ async def test_a_room_is_each_configs_cards_one_after_another(
     hass = with_shared_room
     rooms = _cards(views["main"])[0]["cards"]
 
-    assert rooms[0]["tap_action"]["navigation_path"] == "/lovelace-debug/room-living"
+    assert rooms[0]["tap_action"]["navigation_path"] == "/debug-details/room-living"
     assert views["room-living"]["title"] == "Living"
-    assert views["room-living"]["back_path"] == "/lovelace-debug/main"
     assert _cards(views["room-living"]) == [
         _render(hass, "light_config", light="simple_room"),
         _render(hass, "manual_lights", light="simple_room"),
@@ -396,7 +442,6 @@ async def test_a_room_with_one_config_is_a_room_too(
     views = await _views(with_rooms)
 
     assert views["room-living"]["title"] == "Living"
-    assert views["room-living"]["back_path"] == "/lovelace-debug/main"
     assert not [path for path in views if path.startswith("light-")]
 
 
@@ -413,20 +458,25 @@ def _links(view: dict[str, Any]) -> list[str]:
     return found
 
 
+# Linked to from hass-configs' Debug dashboard rather than from here.
+LINKED_FROM_OUTSIDE = {"people", "killswitches"}
+
+
 async def _assert_links_lead_to_subviews_that_lead_back(hass: HomeAssistant) -> None:
+    """Every page is linked to, and goes back the way it came: these are linked
+    from other dashboards too, so no fixed back path would be right."""
     views = await _views(hass)
     links = [link for view in views.values() for link in _links(view)]
-    subviews = {f"/lovelace-debug/{path}" for path in views if path != "main"}
+    subviews = {f"/debug-details/{path}" for path in views if path != "main"}
 
-    assert set(links) == subviews
+    assert set(links) | {f"/debug-details/{p}" for p in LINKED_FROM_OUTSIDE} == (
+        subviews
+    )
     for path, view in views.items():
         if path == "main":
             continue
         assert view["subview"] is True
-        back = view["back_path"]
-        assert back == "/lovelace-debug/main" or f"/lovelace-debug/{path}" in _links(
-            views[back.removeprefix("/lovelace-debug/")]
-        ), f"{path} goes back to {back}, which doesn't link to it"
+        assert "back_path" not in view, f"{path} has a fixed way back"
 
 
 async def test_every_link_leads_to_a_subview_that_leads_back(
@@ -508,7 +558,7 @@ async def test_a_room_on_the_plan_opens_from_its_area(
         "element": "area-living",
         "tap_action": {
             "action": "navigate",
-            "navigation_path": "/lovelace-debug/room-living",
+            "navigation_path": "/debug-details/room-living",
         },
     }
 
