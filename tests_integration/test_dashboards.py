@@ -445,15 +445,22 @@ async def test_a_room_with_one_config_is_a_room_too(
     assert not [path for path in views if path.startswith("light-")]
 
 
+def _navigation(tap_action: dict[str, Any]) -> str | None:
+    """Where a tap goes, if it navigates. A floor plan's taps are wrapped for
+    Home Assistant's action handler, as `codegen_action`, by floorplan_tap."""
+    action = tap_action.get("codegen_action", tap_action)
+    return action["navigation_path"] if action.get("action") == "navigate" else None
+
+
 def _links(view: dict[str, Any]) -> list[str]:
     """Every navigation from a view's grids and floor plans."""
     found = []
     for card in _cards(view):
         children = card.get("cards", card.get("config", {}).get("rules", []))
         found += [
-            child["tap_action"]["navigation_path"]
+            path
             for child in children
-            if child.get("tap_action", {}).get("action") == "navigate"
+            if (path := _navigation(child.get("tap_action", {}))) is not None
         ]
     return found
 
@@ -551,16 +558,13 @@ async def test_rooms_on_the_plan_are_on_it_and_the_rest_below(
 async def test_a_room_on_the_plan_opens_from_its_area(
     with_plan: HomeAssistant,
 ) -> None:
+    from custom_components.lovelace_codegen import floorplan_tap, navigate
+
     plan = _cards((await _debug(with_plan))["views"][0])[0]
 
     [_, tap] = plan["config"]["rules"]
-    assert tap == {
-        "element": "area-living",
-        "tap_action": {
-            "action": "navigate",
-            "navigation_path": "/debug-details/room-living",
-        },
-    }
+    assert tap == floorplan_tap("area-living", navigate("/debug-details/room-living"))
+    assert _navigation(tap["tap_action"]) == "/debug-details/room-living"
 
 
 async def test_a_room_on_the_plan_shows_its_lights_and_profiles(
