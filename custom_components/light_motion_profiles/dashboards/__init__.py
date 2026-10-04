@@ -1,9 +1,9 @@
-"""The debug dashboards, and the fragments they are built from.
+"""The Debug details dashboard, and the fragments it is built from.
 
 Each card is built by one function, and each function is also registered with
 lovelace_codegen as a fragment, so a hand-written dashboard can embed any of
-these cards (`custom:codegen-fragment`). The generated dashboards are only
-these functions put together, so they cannot drift from the embedded copies.
+these cards (`custom:codegen-fragment`). Debug details is only these functions
+put together, so it cannot drift from the embedded copies.
 """
 
 import logging
@@ -161,51 +161,6 @@ def presence_fragments(
     ]
 
 
-class PresenceDebugDashboard(GeneratedDashboard):
-    def __init__(
-        self,
-        config: UsersGroups,
-        presence_outputs: Mapping[str, PresenceOutput] | None = None,
-    ) -> None:
-        self._ug_config = config
-        self._presence_outputs = presence_outputs or {}
-
-    @property
-    def title(self) -> str:
-        return "Presence Debug"
-
-    @property
-    def url_path(self) -> str:
-        return "presence-debug"
-
-    async def render(self) -> DBT:
-        users: Sequence[Renderable] = [
-            user_card(name, user) for name, user in self._ug_config.users.items()
-        ]
-        views = [
-            View(
-                title=self.title,
-                cards=[
-                    VerticalStackCard(
-                        cards=[
-                            users_groups_card(self._ug_config),
-                            *(
-                                [presence_outputs_card(self._presence_outputs)]
-                                if self._presence_outputs
-                                else []
-                            ),
-                            VerticalStackCard(cards=users),
-                        ]
-                    )
-                ],
-            )
-        ]
-
-        rendered_dashboard = Dashboard(views).render()
-        _LOGGER.warning(f"{rendered_dashboard}")
-        return rendered_dashboard
-
-
 # --- Motion ---
 
 
@@ -339,44 +294,6 @@ def motion_fragments(hass: HomeAssistant, config: Config) -> list[Fragment]:
             description="Every motion sensor any light config reads",
         ),
     ]
-
-
-class MotionDebugDashboard(GeneratedDashboard):
-    def __init__(self, config: Config) -> None:
-        self._motion_config = config
-
-    @property
-    def title(self) -> str:
-        return "Motion Debug"
-
-    @property
-    def url_path(self) -> str:
-        return "motion-debug"
-
-    async def render(self) -> DBT:
-        config = self._motion_config
-        bindings: Sequence[Renderable] = [
-            light_automation_states_card(config),
-            *(light_config_card(name, light) for name, light in config.lights.items()),
-        ]
-        views = [
-            View(
-                title=self.title,
-                cards=[
-                    VerticalStackCard(
-                        cards=[
-                            killswitches_card(config),
-                            VerticalStackCard(cards=bindings),
-                            motion_inputs_card(config),
-                        ]
-                    )
-                ],
-            )
-        ]
-
-        rendered_dashboard = Dashboard(views).render()
-        _LOGGER.warning(f"{rendered_dashboard}")
-        return rendered_dashboard
 
 
 def all_fragments(hass: HomeAssistant, config: Config) -> list[Fragment]:

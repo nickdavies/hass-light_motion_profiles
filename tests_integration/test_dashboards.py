@@ -1,7 +1,7 @@
-"""The debug dashboards, built with lovelace_codegen.
+"""The Debug details dashboard and the fragments, built with lovelace_codegen.
 
 Every other test leaves `debug_dashboard` unset, so this is what shows that the
-dashboards still register and render against the installed lovelace_codegen.
+dashboard still registers and renders against the installed lovelace_codegen.
 """
 
 import copy
@@ -82,13 +82,10 @@ async def with_dashboards(
     return await _setup_dashboards(hass)
 
 
-@pytest.mark.parametrize(
-    "url_path", ["presence-debug", "motion-debug", "debug-details"]
-)
 async def test_the_dashboard_registers_and_renders(
-    with_dashboards: HomeAssistant, url_path: str
+    with_dashboards: HomeAssistant,
 ) -> None:
-    dashboard = with_dashboards.data["lovelace"].dashboards[url_path]
+    dashboard = with_dashboards.data["lovelace"].dashboards["debug-details"]
     config = await dashboard.async_load(False)
 
     assert config["views"], "rendered no views"
@@ -101,20 +98,19 @@ async def test_every_entity_on_the_dashboards_exists(
     """A card naming an entity the component never created renders as a blank
     row nobody notices."""
     missing = set()
-    for url_path in ("presence-debug", "motion-debug", "debug-details"):
-        dashboard = with_dashboards.data["lovelace"].dashboards[url_path]
-        for entity_id in _entity_ids(await dashboard.async_load(False)):
-            if with_dashboards.states.get(entity_id) is None:
-                missing.add(entity_id)
+    dashboard = with_dashboards.data["lovelace"].dashboards["debug-details"]
+    for entity_id in _entity_ids(await dashboard.async_load(False)):
+        if with_dashboards.states.get(entity_id) is None:
+            missing.add(entity_id)
 
     assert not missing
 
 
 # --- Fragments ---
 #
-# Registered whether or not the debug dashboards are on, so these use the plain
-# `integration` fixture. The dashboards are built from the same functions, so
-# each fragment should appear, card for card, on the dashboard it came from.
+# Registered whether or not Debug details is on, so these use the plain
+# `integration` fixture. Debug details is built from the same functions, so
+# each fragment it uses should appear on it card for card.
 
 
 def _registry(hass: HomeAssistant) -> Any:
@@ -179,38 +175,6 @@ async def test_every_entity_in_every_fragment_exists(
         if integration.states.get(entity_id) is None
     }
     assert not missing
-
-
-async def test_the_dashboards_are_made_of_the_fragments(
-    with_dashboards: HomeAssistant,
-) -> None:
-    dashboards = with_dashboards.data["lovelace"].dashboards
-    presence = (await dashboards["presence-debug"].async_load(False))["views"][0]
-    motion = (await dashboards["motion-debug"].async_load(False))["views"][0]
-    presence_cards = presence["cards"][0]["cards"]
-    motion_cards = motion["cards"][0]["cards"]
-
-    users = TEST_CONFIG[DOMAIN]["users"]
-    lights = TEST_CONFIG[DOMAIN]["light_configs"]
-    assert presence_cards == [
-        _render(with_dashboards, "users_groups"),
-        _render(with_dashboards, "presence_outputs"),
-        {
-            "type": "vertical-stack",
-            "cards": [_render(with_dashboards, "user", user=u) for u in users],
-        },
-    ]
-    assert motion_cards == [
-        _render(with_dashboards, "killswitches"),
-        {
-            "type": "vertical-stack",
-            "cards": [
-                _render(with_dashboards, "light_automation_states"),
-                *(_render(with_dashboards, "light_config", light=x) for x in lights),
-            ],
-        },
-        _render(with_dashboards, "motion_inputs"),
-    ]
 
 
 @pytest.mark.parametrize(
