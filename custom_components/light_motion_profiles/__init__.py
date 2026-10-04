@@ -100,8 +100,6 @@ async def async_setup(hass: HomeAssistant, whole_config: Mapping[str, Any]) -> b
 
     from .dashboards import (
         DebugDetailsDashboard,
-        MotionDebugDashboard,
-        PresenceDebugDashboard,
         all_fragments,
         details_fragments,
     )
@@ -116,10 +114,6 @@ async def async_setup(hass: HomeAssistant, whole_config: Mapping[str, Any]) -> b
     register_fragments(hass, DOMAIN, fragments)
 
     if config.settings.dashboard is not None:
-        PresenceDebugDashboard(
-            config.users_groups, config.presence_outputs
-        ).add_to_hass(hass)
-        MotionDebugDashboard(config).add_to_hass(hass)
         DebugDetailsDashboard(hass, config).add_to_hass(hass)
 
     # Return boolean to indicate that initialization was successful.
