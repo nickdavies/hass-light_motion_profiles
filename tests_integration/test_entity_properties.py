@@ -271,7 +271,7 @@ async def test_entity_unknown_omits_property(
     assert "brightness_pct" not in call.data
 
 
-# --- A property change refreshes lights that are on, never switches them ---
+# --- A property change reconciles lights, skipping commands with no effect ---
 
 
 def new_calls_after(
@@ -295,10 +295,10 @@ async def test_refresh_sends_nothing_to_off_light_under_off_profile(
     assert new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
 
 
-async def test_refresh_never_turns_a_light_off(
+async def test_refresh_turns_off_a_light_on_under_off_profile(
     hass: HomeAssistant, entity_integration, light_service_calls
 ):
-    """A light turned on by hand under an off profile is left on."""
+    """A light turned on by hand under an off profile is turned back off."""
     await set_select(hass, USER_A_STATE, "asleep")
     await flush(hass)
     hass.states.async_set(SIMPLE_ROOM_LIGHT, "on")
@@ -308,13 +308,14 @@ async def test_refresh_never_turns_a_light_off(
     hass.states.async_set(INPUT_BRIGHTNESS, "50")
     await flush(hass)
 
-    assert new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [c.service for c in new_calls] == ["turn_off"]
 
 
-async def test_refresh_never_turns_a_light_on(
+async def test_refresh_turns_on_a_light_off_under_on_profile(
     hass: HomeAssistant, entity_integration, light_service_calls
 ):
-    """A light turned off by hand under an on profile is left off."""
+    """A light turned off by hand under an on profile is turned back on."""
     await flush(hass)
     hass.states.async_set(SIMPLE_ROOM_LIGHT, "off")
     await flush(hass)
@@ -323,13 +324,32 @@ async def test_refresh_never_turns_a_light_on(
     hass.states.async_set(INPUT_BRIGHTNESS, "50")
     await flush(hass)
 
-    assert new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [c.service for c in new_calls] == ["turn_on"]
+    assert new_calls[0].data.get("brightness_pct") == 50
+
+
+async def test_refresh_turns_off_unknown_light_under_off_profile(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """A light that hasn't reported isn't known to be off, so is sent turn_off."""
+    await set_select(hass, USER_A_STATE, "asleep")
+    await flush(hass)
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, "unknown")
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [c.service for c in new_calls] == ["turn_off"]
 
 
 async def test_refresh_takes_unknown_light_out_of_unknown(
     hass: HomeAssistant, entity_integration, light_service_calls
 ):
-    """A light that hasn't reported counts as on, and gets the new values."""
+    """A light that hasn't reported gets an on profile's values."""
     await flush(hass)
     hass.states.async_set(SIMPLE_ROOM_LIGHT, "unknown")
     await flush(hass)
@@ -349,7 +369,7 @@ async def test_refresh_leaves_unknown_light_alone_under_noop(
 ):
     """After a restart (unknown_occ → noop), a refresh doesn't switch a light on.
 
-    Only a profile that turns lights on counts an unknown light as on.
+    A profile that doesn't say on or off only adjusts a light that is on.
     """
     await setup_entity_integration(
         hass, simple_room_motion="unknown", simple_room_light="unknown"

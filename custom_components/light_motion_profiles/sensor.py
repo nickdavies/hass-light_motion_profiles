@@ -13,7 +13,6 @@ from homeassistant.const import (
     STATE_ON,
     STATE_OFF,
     STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
     SERVICE_TURN_ON,
     SERVICE_TURN_OFF,
     ATTR_ENTITY_ID,
@@ -437,10 +436,10 @@ class LightRuleEntity(CalculatedSensor[str | None], SensorEntity):
 class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
     """Drives a light config's lights to the profile its current rule picks.
 
-    The rule or a killswitch changing applies the profile: the lights are
-    switched on or off and set to its values. An entity a profile reads
-    changing (e.g. the circadian color temperature) instead refreshes them: a
-    refresh adjusts lights that are on, and never switches a light on or off.
+    The rule or a killswitch changing applies the profile, always sending its
+    command. An entity a profile reads changing (e.g. the circadian color
+    temperature) refreshes the lights: it reconciles them with the profile
+    the same way, but skips a command that would have no effect.
     """
 
     def __init__(self, light_config: LightGroup, global_ks: Entity) -> None:
@@ -579,14 +578,7 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
 
         if service is None:
             return
-        # A refresh adjusts lights, it never switches them: it only sends
-        # turn_on, to a light that is on. A light that hasn't reported counts
-        # as on when the profile turns lights on, so it gets the profile's
-        # values and leaves unknown.
-        if refresh and (
-            service == SERVICE_TURN_OFF
-            or light_state.state not in (STATE_ON, STATE_UNKNOWN)
-        ):
+        if refresh and service == SERVICE_TURN_OFF and light_state.state == STATE_OFF:
             return
 
         service_data: Dict[str, Any] = {
