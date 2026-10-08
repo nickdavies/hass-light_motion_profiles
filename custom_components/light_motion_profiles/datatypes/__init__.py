@@ -20,6 +20,7 @@ from ..config.settings import (
     UserGroupSettings as UserGroupSettings,
     DashboardSettings as DashboardSettings,
     KillswitchSettings as KillswitchSettings,
+    RefreshSettings as RefreshSettings,
 )
 
 from .entity import InputEntity, Domains as Domains, Entity as Entity
@@ -43,6 +44,7 @@ class Settings:
     users_groups: UserGroupSettings
     dashboard: DashboardSettings | None
     killswitch: KillswitchSettings
+    refresh: RefreshSettings
 
     def __init__(self, config: RawAllSettings, domains: Domains):
         self.domains = domains
@@ -50,6 +52,7 @@ class Settings:
         self.users_groups = config.users_groups
         self.dashboard = config.dashboard
         self.killswitch = config.killswitch
+        self.refresh = config.refresh
 
 
 @dataclass

@@ -11,6 +11,11 @@ settings:
       - awake
       - winddown
       - asleep
+  # Optional; this is the default. When an entity a profile reads changes
+  # (e.g. the circadian color temperature), lights fade to the new values
+  # over `transition` seconds, instead of the profile's own transition.
+  # refresh:
+  #   transition: 10
 
 users:
   nick:

@@ -103,10 +103,12 @@ async def setup_entity_integration(
     hass: HomeAssistant,
     simple_room_motion: str = "on",
     simple_room_light: str = "off",
+    refresh: dict[str, Any] | None = None,
 ) -> HomeAssistant:
     """Set up integration with entity-based light profiles.
 
-    `simple_room_motion` and `simple_room_light` are the states those start in.
+    `simple_room_motion` and `simple_room_light` are the states those start in,
+    and `refresh`, if given, is the `settings.refresh` config.
     """
     # Pre-create external entities
     hass.states.async_set(PERSON_USER_A, "home")
@@ -123,6 +125,8 @@ async def setup_entity_integration(
     _ensure_custom_components_path()
 
     config = _make_entity_config()
+    if refresh is not None:
+        config[DOMAIN]["settings"]["refresh"] = refresh
     result = await async_setup_component(hass, DOMAIN, config)
     assert result, "Integration setup failed"
     await hass.async_block_till_done()
@@ -539,3 +543,66 @@ async def test_rule_change_sends_values_the_light_already_has(
 
     new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
     assert [c.service for c in new_calls] == ["turn_on"]
+
+
+# --- A refresh fades over the refresh transition, not the profile's ---
+
+
+async def test_refresh_fades_over_the_refresh_transition(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """A refresh's turn_on uses settings.refresh.transition (10s by default)."""
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [c.data.get("transition") for c in new_calls] == [10]
+
+
+async def test_refresh_turn_off_fades_over_the_refresh_transition(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """A refresh turning a light back off fades over the refresh transition too."""
+    await set_select(hass, USER_A_STATE, "asleep")
+    await flush(hass)
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, "on")
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [(c.service, c.data.get("transition")) for c in new_calls] == [
+        ("turn_off", 10)
+    ]
+
+
+async def test_rule_change_keeps_the_profiles_transition(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """Only refreshes use the refresh transition; dim sets none, so 0."""
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    await set_select(hass, USER_A_STATE, "winddown")
+    await flush(hass)
+
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [c.data.get("transition") for c in new_calls] == [0]
+
+
+async def test_refresh_transition_is_configurable(
+    hass: HomeAssistant, light_service_calls
+):
+    await setup_entity_integration(hass, refresh={"transition": 3})
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [c.data.get("transition") for c in new_calls] == [3]
