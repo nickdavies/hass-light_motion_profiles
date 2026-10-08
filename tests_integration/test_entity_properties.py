@@ -247,8 +247,15 @@ async def test_color_temp_entity_change_updates_service_call(
 async def test_entity_unavailable_omits_property(
     hass: HomeAssistant, entity_integration, light_service_calls
 ):
-    """When brightness entity is unavailable, brightness is omitted from service call."""
+    """When brightness entity is unavailable, brightness is omitted from service call.
+
+    Seen on a rule change into the profile: a refresh with only the color
+    temperature the light already has sends nothing.
+    """
+    await set_select(hass, USER_A_STATE, "winddown")
+    await flush(hass)
     hass.states.async_set(INPUT_BRIGHTNESS, "unavailable")
+    await set_select(hass, USER_A_STATE, "awake")
     await flush(hass)
 
     call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
@@ -262,7 +269,10 @@ async def test_entity_unknown_omits_property(
     hass: HomeAssistant, entity_integration, light_service_calls
 ):
     """When brightness entity is unknown, brightness is omitted from service call."""
+    await set_select(hass, USER_A_STATE, "winddown")
+    await flush(hass)
     hass.states.async_set(INPUT_BRIGHTNESS, "unknown")
+    await set_select(hass, USER_A_STATE, "awake")
     await flush(hass)
 
     call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
@@ -433,3 +443,99 @@ async def test_rule_change_switches_light_whatever_its_state(
 
     new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
     assert [c.service for c in new_calls] == ["turn_off"]
+
+
+# --- A refresh skips a turn_on the light already has the values of ---
+
+
+async def test_refresh_skips_light_that_already_has_values(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """An input the current profile doesn't read changing sends nothing."""
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    # The full profile reads brightness, not this.
+    hass.states.async_set(INPUT_COLOR_TEMP, "2700")
+    await flush(hass)
+
+    assert new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
+
+
+async def test_refresh_skips_change_within_a_mired(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """A color temperature change too small for the light to show sends nothing."""
+    await set_select(hass, USER_A_STATE, "winddown")
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    # 3000K and 3001K are both 333 mireds; 3010K is 332.
+    hass.states.async_set(INPUT_COLOR_TEMP, "3001")
+    await flush(hass)
+    assert new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
+
+    hass.states.async_set(INPUT_COLOR_TEMP, "3010")
+    await flush(hass)
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [c.data.get("color_temp_kelvin") for c in new_calls] == [3010]
+
+
+async def test_refresh_compares_within_light_range(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """Targets past either end of the light's range match the light at that end."""
+    await set_select(hass, USER_A_STATE, "winddown")
+    await flush(hass)
+
+    for first, second in (("1000", "1500"), ("9790", "9000")):
+        hass.states.async_set(INPUT_COLOR_TEMP, first)
+        await flush(hass)
+        initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+        hass.states.async_set(INPUT_COLOR_TEMP, second)
+        await flush(hass)
+        assert (
+            new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
+        )
+
+
+async def test_refresh_sends_to_light_in_a_color_mode(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """A light set to a color reports no color temperature, so is sent one."""
+    await set_select(hass, USER_A_STATE, "winddown")
+    await flush(hass)
+    attrs = dict(hass.states.get(SIMPLE_ROOM_LIGHT).attributes)
+    del attrs["color_temp_kelvin"]
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, "on", attrs)
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    # The dim profile reads color temperature, not this.
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [c.data.get("color_temp_kelvin") for c in new_calls] == [3000]
+
+
+async def test_rule_change_sends_values_the_light_already_has(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """Only a refresh skips: a rule change always sends its command."""
+    await set_select(hass, USER_A_STATE, "winddown")
+    await flush(hass)
+    dim = dict(hass.states.get(SIMPLE_ROOM_LIGHT).attributes)
+    await set_select(hass, USER_A_STATE, "awake")
+    await flush(hass)
+
+    # The light is put back to the dim values by hand, then the rule moves there.
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, "on", dim)
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+    await set_select(hass, USER_A_STATE, "winddown")
+    await flush(hass)
+
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [c.service for c in new_calls] == ["turn_on"]
