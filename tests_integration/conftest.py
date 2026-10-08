@@ -8,7 +8,14 @@ import sys
 from typing import Any
 
 import pytest
-from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
+from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
+    ATTR_BRIGHTNESS_PCT,
+    ATTR_COLOR_TEMP_KELVIN,
+    ATTR_MAX_COLOR_TEMP_KELVIN,
+    ATTR_MIN_COLOR_TEMP_KELVIN,
+    DOMAIN as LIGHT_DOMAIN,
+)
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     SERVICE_TURN_ON,
@@ -19,6 +26,10 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.loader import DATA_CUSTOM_COMPONENTS
 from homeassistant.setup import async_setup_component
+from homeassistant.util.color import (
+    color_temperature_kelvin_to_mired,
+    color_temperature_mired_to_kelvin,
+)
 
 
 DOMAIN = "light_motion_profiles"
@@ -259,6 +270,11 @@ BEDSIDE_LIGHT = "light.bedside"
 # Global
 GLOBAL_KS = "switch.killswitch_motion_global"
 
+# The color temperature range every mock light reports: a Hue bulb's,
+# 454 to 153 mireds.
+LIGHT_MIN_KELVIN = 2202
+LIGHT_MAX_KELVIN = 6535
+
 # Tracking entity
 PERSON_USER_A = "person.user_a"
 
@@ -332,16 +348,34 @@ def _ensure_custom_components_path():
 async def light_service_calls(hass: HomeAssistant) -> list[ServiceCall]:
     """Register mock light services and return list of captured calls.
 
-    Each call also sets the light on or off, as a real light reports back.
+    Each call also sets the light's state, as a real light reports back: on or
+    off, brightness on HA's 0-255 scale, and color temperature clamped to the
+    light's range and reported in whole mireds.
     """
     calls: list[ServiceCall] = []
 
     async def mock_service(call: ServiceCall) -> None:
         calls.append(call)
-        hass.states.async_set(
-            call.data[ATTR_ENTITY_ID],
-            STATE_ON if call.service == SERVICE_TURN_ON else STATE_OFF,
-        )
+        entity_id = call.data[ATTR_ENTITY_ID]
+        if call.service == SERVICE_TURN_OFF:
+            hass.states.async_set(entity_id, STATE_OFF)
+            return
+
+        attrs: dict[str, Any] = {
+            ATTR_MIN_COLOR_TEMP_KELVIN: LIGHT_MIN_KELVIN,
+            ATTR_MAX_COLOR_TEMP_KELVIN: LIGHT_MAX_KELVIN,
+        }
+        current = hass.states.get(entity_id)
+        if current is not None and current.state == STATE_ON:
+            attrs.update(current.attributes)
+        if (pct := call.data.get(ATTR_BRIGHTNESS_PCT)) is not None:
+            attrs[ATTR_BRIGHTNESS] = round(255 * pct / 100)
+        if (kelvin := call.data.get(ATTR_COLOR_TEMP_KELVIN)) is not None:
+            clamped = min(max(kelvin, LIGHT_MIN_KELVIN), LIGHT_MAX_KELVIN)
+            attrs[ATTR_COLOR_TEMP_KELVIN] = color_temperature_mired_to_kelvin(
+                color_temperature_kelvin_to_mired(clamped)
+            )
+        hass.states.async_set(entity_id, STATE_ON, attrs)
 
     hass.services.async_register(LIGHT_DOMAIN, SERVICE_TURN_ON, mock_service)
     hass.services.async_register(LIGHT_DOMAIN, SERVICE_TURN_OFF, mock_service)

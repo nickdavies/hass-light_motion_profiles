@@ -3,12 +3,16 @@ from datetime import timedelta, datetime
 from typing import Mapping, List, Set, Any, TypeVar, Generic, Dict, Callable
 
 from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
     ATTR_BRIGHTNESS_PCT,
     ATTR_COLOR_TEMP_KELVIN,
+    ATTR_MAX_COLOR_TEMP_KELVIN,
+    ATTR_MIN_COLOR_TEMP_KELVIN,
     ATTR_TRANSITION,
     DOMAIN as LIGHT_DOMAIN,
 )
 from homeassistant.util import dt as dt_util
+from homeassistant.util.color import color_temperature_kelvin_to_mired
 from homeassistant.const import (
     STATE_ON,
     STATE_OFF,
@@ -593,6 +597,12 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
                 color_val = target.color_temp.resolve(self.hass)
                 if color_val is not None:
                     service_data[ATTR_COLOR_TEMP_KELVIN] = int(float(color_val))
+            if (
+                refresh
+                and light_state.state == STATE_ON
+                and _light_has(light_state, service_data)
+            ):
+                return
 
         if target.transition is not None:
             transition_val = target.transition.resolve(self.hass)
@@ -611,3 +621,40 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
                 blocking=False,
             )
         )
+
+
+def _light_has(light_state: State, service_data: Mapping[str, Any]) -> bool:
+    """Whether an on light already has the turn_on's brightness and color.
+
+    Compared at the precision the light reports back in, not the requested
+    one: brightness in whole percent, color temperature in whole mireds
+    within the light's range. Circadian targets fall outside every bulb's
+    range (1000K at night, ~9800K at midday), so without the clamp they'd
+    never match; an exact comparison never matches either.
+
+    A light not reporting a color temperature (e.g. set to a color) has a
+    different one, so a refresh brings it back to white.
+    """
+    attrs = light_state.attributes
+
+    brightness_pct = service_data.get(ATTR_BRIGHTNESS_PCT)
+    if brightness_pct is not None:
+        brightness = attrs.get(ATTR_BRIGHTNESS)
+        if brightness is None or round(brightness * 100 / 255) != brightness_pct:
+            return False
+
+    kelvin = service_data.get(ATTR_COLOR_TEMP_KELVIN)
+    if kelvin is not None:
+        current = attrs.get(ATTR_COLOR_TEMP_KELVIN)
+        if current is None:
+            return False
+        low = attrs.get(ATTR_MIN_COLOR_TEMP_KELVIN)
+        high = attrs.get(ATTR_MAX_COLOR_TEMP_KELVIN)
+        if low is not None and high is not None:
+            kelvin = min(max(kelvin, low), high)
+        if color_temperature_kelvin_to_mired(
+            current
+        ) != color_temperature_kelvin_to_mired(kelvin):
+            return False
+
+    return True
