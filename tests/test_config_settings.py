@@ -11,6 +11,7 @@ from custom_components.light_motion_profiles.config.settings import (
     UserGroupSettings,
     DashboardSettings,
     Floorplan,
+    RefreshSettings,
     AllSettings,
 )
 
@@ -117,7 +118,31 @@ class TestDashboardSettings:
             DashboardSettings.vol()({"floorplans": {"main": plan}})
 
 
+class TestRefreshSettings:
+    def test_transition_defaults_to_ten_seconds(self):
+        for data in (None, {}):
+            assert (
+                RefreshSettings.from_yaml(RefreshSettings.vol()(data)).transition == 10
+            )
+
+    def test_transition(self):
+        data = RefreshSettings.vol()({"transition": 0})
+        assert RefreshSettings.from_yaml(data).transition == 0
+
+    def test_rejects_an_unknown_key(self):
+        with pytest.raises(vol.Invalid):
+            RefreshSettings.vol()({"spread": 300})
+
+
 class TestAllSettings:
+    def test_refresh_is_optional(self):
+        data = {
+            "room": {"valid_room_states": ["default"]},
+            "user_group": {"valid_person_states": ["awake"]},
+        }
+        AllSettings.vol()({**data, "debug_dashboard": None})
+        assert AllSettings.from_yaml(data).refresh == RefreshSettings(transition=10)
+
     def test_from_yaml_with_dashboard(self):
         data = {
             "room": {"valid_room_states": ["default"]},

@@ -111,6 +111,7 @@ async def async_setup_platform(
             LightAutomationEntity(
                 light_config,
                 config.global_killswitch_entity,
+                refresh_transition=config.settings.refresh.transition,
             )
         )
 
@@ -443,10 +444,13 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
     The rule or a killswitch changing applies the profile, always sending its
     command. An entity a profile reads changing (e.g. the circadian color
     temperature) refreshes the lights: it reconciles them with the profile
-    the same way, but skips a command that would have no effect.
+    the same way, but skips a command that would have no effect, and fades
+    over `refresh_transition` seconds instead of the profile's transition.
     """
 
-    def __init__(self, light_config: LightGroup, global_ks: Entity) -> None:
+    def __init__(
+        self, light_config: LightGroup, global_ks: Entity, refresh_transition: int
+    ) -> None:
         super().__init__()
         entity = light_config.light_automation_entity
         assert entity.domain.value == SENSOR_DOMAIN
@@ -475,6 +479,7 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
             for r in light_config.rules
             if r.state.icon is not None
         }
+        self._refresh_transition = refresh_transition
 
     async def async_added_to_hass(self) -> None:
         @callback
@@ -604,7 +609,9 @@ class LightAutomationEntity(CalculatedSensor[str | None], SensorEntity):
             ):
                 return
 
-        if target.transition is not None:
+        if refresh:
+            service_data[ATTR_TRANSITION] = self._refresh_transition
+        elif target.transition is not None:
             transition_val = target.transition.resolve(self.hass)
             if transition_val is not None:
                 service_data[ATTR_TRANSITION] = int(float(transition_val))

@@ -199,15 +199,47 @@ class DashboardSettings:
 
 
 @dataclass
+class RefreshSettings:
+    """How lights are refreshed when an entity a profile reads changes.
+
+    A refresh brings lights to the current profile's new values (e.g. the
+    next circadian color temperature) without the rule changing, so it fades
+    over its own `transition` in seconds rather than the profile's, which is
+    meant for switching profiles.
+    """
+
+    FIELD_TRANSITION = "transition"
+
+    DEFAULT_TRANSITION = 10
+
+    transition: int
+
+    @classmethod
+    def from_yaml(cls, data: Mapping[str, int] | None) -> "RefreshSettings":
+        data = data or {}
+        return cls(
+            transition=data.get(cls.FIELD_TRANSITION, cls.DEFAULT_TRANSITION),
+        )
+
+    @classmethod
+    def vol(cls) -> vol.Schema:
+        return vol.Schema(
+            vol.Any(None, {vol.Optional(cls.FIELD_TRANSITION): cv.positive_int})
+        )
+
+
+@dataclass
 class AllSettings:
     room: RoomSettings
     users_groups: UserGroupSettings
     dashboard: DashboardSettings | None
     killswitch: KillswitchSettings
+    refresh: RefreshSettings
 
     FIELD_ROOM_SETTINGS = "room"
     FIELD_USER_GROUP_SETTINGS = "user_group"
     FIELD_DASHBOARD_SETTINGS = "debug_dashboard"
+    FIELD_REFRESH_SETTINGS = "refresh"
 
     @classmethod
     def from_yaml(cls, data: Mapping[str, Any]) -> "AllSettings":
@@ -220,6 +252,7 @@ class AllSettings:
             if cls.FIELD_DASHBOARD_SETTINGS in data
             else None,
             killswitch=KillswitchSettings.from_yaml(),
+            refresh=RefreshSettings.from_yaml(data.get(cls.FIELD_REFRESH_SETTINGS)),
         )
 
     @classmethod
@@ -229,5 +262,6 @@ class AllSettings:
                 vol.Required(cls.FIELD_ROOM_SETTINGS): RoomSettings.vol(),
                 vol.Required(cls.FIELD_USER_GROUP_SETTINGS): UserGroupSettings.vol(),
                 cls.FIELD_DASHBOARD_SETTINGS: DashboardSettings.vol(),
+                vol.Optional(cls.FIELD_REFRESH_SETTINGS): RefreshSettings.vol(),
             }
         )
