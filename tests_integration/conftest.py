@@ -9,7 +9,13 @@ from typing import Any
 
 import pytest
 from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
-from homeassistant.const import SERVICE_TURN_ON, SERVICE_TURN_OFF
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    SERVICE_TURN_ON,
+    SERVICE_TURN_OFF,
+    STATE_OFF,
+    STATE_ON,
+)
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.loader import DATA_CUSTOM_COMPONENTS
 from homeassistant.setup import async_setup_component
@@ -324,11 +330,18 @@ def _ensure_custom_components_path():
 
 @pytest.fixture
 async def light_service_calls(hass: HomeAssistant) -> list[ServiceCall]:
-    """Register mock light services and return list of captured calls."""
+    """Register mock light services and return list of captured calls.
+
+    Each call also sets the light on or off, as a real light reports back.
+    """
     calls: list[ServiceCall] = []
 
     async def mock_service(call: ServiceCall) -> None:
         calls.append(call)
+        hass.states.async_set(
+            call.data[ATTR_ENTITY_ID],
+            STATE_ON if call.service == SERVICE_TURN_ON else STATE_OFF,
+        )
 
     hass.services.async_register(LIGHT_DOMAIN, SERVICE_TURN_ON, mock_service)
     hass.services.async_register(LIGHT_DOMAIN, SERVICE_TURN_OFF, mock_service)

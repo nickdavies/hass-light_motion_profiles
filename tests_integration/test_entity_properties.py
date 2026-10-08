@@ -5,14 +5,15 @@ HA entity states, respond to entity changes, and fall back correctly.
 """
 
 import copy
+from datetime import timedelta
 from typing import Any
 
 import pytest
-from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
-from homeassistant.const import SERVICE_TURN_ON, SERVICE_TURN_OFF
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.loader import DATA_CUSTOM_COMPONENTS
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from .conftest import (
     TEST_CONFIG,
@@ -24,6 +25,8 @@ from .conftest import (
     USER_B_STATE,
     SIMPLE_ROOM_MOTION,
     SIMPLE_ROOM_LIGHT,
+    SIMPLE_ROOM_KS,
+    SIMPLE_ROOM_OCCUPANCY,
     BEDSIDE_MOTION,
     PERSON_USER_A,
     flush,
@@ -89,28 +92,27 @@ def last_call(calls: list[ServiceCall], entity_id: str) -> ServiceCall | None:
 
 
 @pytest.fixture
-async def entity_service_calls(hass: HomeAssistant) -> list[ServiceCall]:
-    """Register mock light services and return list of captured calls."""
-    calls: list[ServiceCall] = []
-
-    async def mock_service(call: ServiceCall) -> None:
-        calls.append(call)
-
-    hass.services.async_register(LIGHT_DOMAIN, SERVICE_TURN_ON, mock_service)
-    hass.services.async_register(LIGHT_DOMAIN, SERVICE_TURN_OFF, mock_service)
-    return calls
-
-
-@pytest.fixture
 async def entity_integration(
-    hass: HomeAssistant, entity_service_calls: list[ServiceCall]
+    hass: HomeAssistant, light_service_calls: list[ServiceCall]
 ) -> HomeAssistant:
-    """Set up integration with entity-based light profiles."""
+    """The integration with entity-based light profiles, in a normal state."""
+    return await setup_entity_integration(hass)
+
+
+async def setup_entity_integration(
+    hass: HomeAssistant,
+    simple_room_motion: str = "on",
+    simple_room_light: str = "off",
+) -> HomeAssistant:
+    """Set up integration with entity-based light profiles.
+
+    `simple_room_motion` and `simple_room_light` are the states those start in.
+    """
     # Pre-create external entities
     hass.states.async_set(PERSON_USER_A, "home")
-    hass.states.async_set(SIMPLE_ROOM_MOTION, "on")
+    hass.states.async_set(SIMPLE_ROOM_MOTION, simple_room_motion)
     hass.states.async_set(BEDSIDE_MOTION, "on")
-    hass.states.async_set(SIMPLE_ROOM_LIGHT, "off")
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, simple_room_light)
 
     # Pre-create the input_number entities that profiles reference
     hass.states.async_set(INPUT_BRIGHTNESS, "80")
@@ -149,12 +151,12 @@ async def set_switch(hass: HomeAssistant, entity_id: str, on: bool) -> None:
 
 
 async def test_entity_brightness_in_service_call(
-    hass: HomeAssistant, entity_integration, entity_service_calls
+    hass: HomeAssistant, entity_integration, light_service_calls
 ):
     """Full profile resolves brightness from input_number entity (80)."""
     await flush(hass)
 
-    call = last_call(entity_service_calls, SIMPLE_ROOM_LIGHT)
+    call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
     assert call is not None
     assert call.service == "turn_on"
     # Entity INPUT_BRIGHTNESS is "80", should resolve to int 80
@@ -162,12 +164,12 @@ async def test_entity_brightness_in_service_call(
 
 
 async def test_static_color_temp_in_service_call(
-    hass: HomeAssistant, entity_integration, entity_service_calls
+    hass: HomeAssistant, entity_integration, light_service_calls
 ):
     """Full profile includes static color_temp_kelvin=4000."""
     await flush(hass)
 
-    call = last_call(entity_service_calls, SIMPLE_ROOM_LIGHT)
+    call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
     assert call is not None
     assert call.service == "turn_on"
     assert call.data.get("color_temp_kelvin") == 4000
@@ -177,13 +179,13 @@ async def test_static_color_temp_in_service_call(
 
 
 async def test_entity_color_temp_in_service_call(
-    hass: HomeAssistant, entity_integration, entity_service_calls
+    hass: HomeAssistant, entity_integration, light_service_calls
 ):
     """Dim profile resolves color_temp from input_number entity (3000)."""
     await set_select(hass, USER_A_STATE, "winddown")
     await flush(hass)
 
-    call = last_call(entity_service_calls, SIMPLE_ROOM_LIGHT)
+    call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
     assert call is not None
     assert call.service == "turn_on"
     assert call.data.get("brightness_pct") == 25  # static
@@ -194,47 +196,47 @@ async def test_entity_color_temp_in_service_call(
 
 
 async def test_brightness_entity_change_updates_service_call(
-    hass: HomeAssistant, entity_integration, entity_service_calls
+    hass: HomeAssistant, entity_integration, light_service_calls
 ):
     """Changing the brightness entity triggers a new service call with updated value."""
     await flush(hass)
 
     # Verify initial brightness
-    call = last_call(entity_service_calls, SIMPLE_ROOM_LIGHT)
+    call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
     assert call is not None
     assert call.data.get("brightness_pct") == 80
 
-    initial_count = len(find_calls(entity_service_calls, SIMPLE_ROOM_LIGHT))
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
 
     # Change the brightness entity
     hass.states.async_set(INPUT_BRIGHTNESS, "50")
     await flush(hass)
 
     # Should have a new service call with updated brightness
-    new_calls = find_calls(entity_service_calls, SIMPLE_ROOM_LIGHT)[initial_count:]
+    new_calls = find_calls(light_service_calls, SIMPLE_ROOM_LIGHT)[initial_count:]
     assert len(new_calls) > 0
     assert new_calls[-1].data.get("brightness_pct") == 50
 
 
 async def test_color_temp_entity_change_updates_service_call(
-    hass: HomeAssistant, entity_integration, entity_service_calls
+    hass: HomeAssistant, entity_integration, light_service_calls
 ):
     """Changing the color_temp entity triggers a new service call with updated value."""
     # Switch to winddown to use the "dim" profile with entity color_temp
     await set_select(hass, USER_A_STATE, "winddown")
     await flush(hass)
 
-    call = last_call(entity_service_calls, SIMPLE_ROOM_LIGHT)
+    call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
     assert call is not None
     assert call.data.get("color_temp_kelvin") == 3000
 
-    initial_count = len(find_calls(entity_service_calls, SIMPLE_ROOM_LIGHT))
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
 
     # Change the color temp entity
     hass.states.async_set(INPUT_COLOR_TEMP, "2700")
     await flush(hass)
 
-    new_calls = find_calls(entity_service_calls, SIMPLE_ROOM_LIGHT)[initial_count:]
+    new_calls = find_calls(light_service_calls, SIMPLE_ROOM_LIGHT)[initial_count:]
     assert len(new_calls) > 0
     assert new_calls[-1].data.get("color_temp_kelvin") == 2700
 
@@ -243,13 +245,13 @@ async def test_color_temp_entity_change_updates_service_call(
 
 
 async def test_entity_unavailable_omits_property(
-    hass: HomeAssistant, entity_integration, entity_service_calls
+    hass: HomeAssistant, entity_integration, light_service_calls
 ):
     """When brightness entity is unavailable, brightness is omitted from service call."""
     hass.states.async_set(INPUT_BRIGHTNESS, "unavailable")
     await flush(hass)
 
-    call = last_call(entity_service_calls, SIMPLE_ROOM_LIGHT)
+    call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
     assert call is not None
     assert call.service == "turn_on"
     # Brightness should not be in the service data (resolve returns None)
@@ -257,13 +259,157 @@ async def test_entity_unavailable_omits_property(
 
 
 async def test_entity_unknown_omits_property(
-    hass: HomeAssistant, entity_integration, entity_service_calls
+    hass: HomeAssistant, entity_integration, light_service_calls
 ):
     """When brightness entity is unknown, brightness is omitted from service call."""
     hass.states.async_set(INPUT_BRIGHTNESS, "unknown")
     await flush(hass)
 
-    call = last_call(entity_service_calls, SIMPLE_ROOM_LIGHT)
+    call = last_call(light_service_calls, SIMPLE_ROOM_LIGHT)
     assert call is not None
     assert call.service == "turn_on"
     assert "brightness_pct" not in call.data
+
+
+# --- A property change refreshes lights that are on, never switches them ---
+
+
+def new_calls_after(
+    calls: list[ServiceCall], entity_id: str, initial_count: int
+) -> list[ServiceCall]:
+    return find_calls(calls, entity_id)[initial_count:]
+
+
+async def test_refresh_sends_nothing_to_off_light_under_off_profile(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """An off light under an off profile isn't sent turn_off again."""
+    await set_select(hass, USER_A_STATE, "asleep")
+    await flush(hass)
+    assert hass.states.get(SIMPLE_ROOM_LIGHT).state == "off"
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    assert new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
+
+
+async def test_refresh_never_turns_a_light_off(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """A light turned on by hand under an off profile is left on."""
+    await set_select(hass, USER_A_STATE, "asleep")
+    await flush(hass)
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, "on")
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    assert new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
+
+
+async def test_refresh_never_turns_a_light_on(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """A light turned off by hand under an on profile is left off."""
+    await flush(hass)
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, "off")
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    assert new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
+
+
+async def test_refresh_takes_unknown_light_out_of_unknown(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """A light that hasn't reported counts as on, and gets the new values."""
+    await flush(hass)
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, "unknown")
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [c.service for c in new_calls] == ["turn_on"]
+    assert new_calls[0].data.get("brightness_pct") == 50
+    assert hass.states.get(SIMPLE_ROOM_LIGHT).state == "on"
+
+
+async def test_refresh_leaves_unknown_light_alone_under_noop(
+    hass: HomeAssistant, light_service_calls
+):
+    """After a restart (unknown_occ → noop), a refresh doesn't switch a light on.
+
+    Only a profile that turns lights on counts an unknown light as on.
+    """
+    await setup_entity_integration(
+        hass, simple_room_motion="unknown", simple_room_light="unknown"
+    )
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, "unknown")
+    await flush(hass)
+    assert hass.states.get(SIMPLE_ROOM_OCCUPANCY).state == "unknown"
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    assert new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
+
+    # Let the startup timeout end, so its timer doesn't outlive the test.
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=181))
+    await flush(hass)
+
+
+async def test_refresh_skips_unavailable_light(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """An unavailable light isn't called; it's re-applied when it comes back."""
+    await flush(hass)
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, "unavailable")
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    assert new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
+
+
+async def test_killswitch_blocks_refresh(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """A killswitch holds the lights through a property change too."""
+    await flush(hass)
+    await set_switch(hass, SIMPLE_ROOM_KS, True)
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    hass.states.async_set(INPUT_BRIGHTNESS, "50")
+    await flush(hass)
+
+    assert new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count) == []
+
+
+async def test_rule_change_switches_light_whatever_its_state(
+    hass: HomeAssistant, entity_integration, light_service_calls
+):
+    """A rule change always sends its command, even to a light already off."""
+    await flush(hass)
+    hass.states.async_set(SIMPLE_ROOM_LIGHT, "off")
+    await flush(hass)
+    initial_count = len(find_calls(light_service_calls, SIMPLE_ROOM_LIGHT))
+
+    await set_select(hass, USER_A_STATE, "asleep")
+    await flush(hass)
+
+    new_calls = new_calls_after(light_service_calls, SIMPLE_ROOM_LIGHT, initial_count)
+    assert [c.service for c in new_calls] == ["turn_off"]
