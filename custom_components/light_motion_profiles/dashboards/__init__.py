@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any, List, Dict, Mapping, Set, Sequence
 
 import voluptuous as vol
-from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.const import ATTR_ENTITY_ID, ATTR_GROUP_ENTITIES
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 
@@ -238,22 +238,37 @@ def motion_inputs_card(config: Config) -> EntitiesCard:
     )
 
 
+def light_members(hass: HomeAssistant, entity_id: str) -> list[str]:
+    """The lights in a light group, or none if it is not one.
+
+    Members are read from the group's state as it is when the card is built, so
+    a light added to the group shows up on the next render. A Zigbee2MQTT group
+    lists them in `group_entities`; Home Assistant's own light groups in
+    `entity_id`.
+    """
+    state = hass.states.get(entity_id)
+    if state is None:
+        return []
+    for attribute in (ATTR_GROUP_ENTITIES, ATTR_ENTITY_ID):
+        members = state.attributes.get(attribute)
+        if members:
+            if isinstance(members, str):
+                members = [members]
+            return [member for member in members if member != entity_id]
+    return []
+
+
 def manual_lights_card(
     hass: HomeAssistant, name: str, light: LightGroup
 ) -> EntitiesCard:
-    """The light a config drives, then each light in it if it is a group.
-
-    Members come from the group's `entity_id` attribute as it is when the card is
-    built, so a light added to the group shows up on the next render.
-    """
+    """Each bulb a config drives: its light's members if it is a group, else
+    the light itself."""
     group = light.lights.entity
-    state = hass.states.get(group)
-    members = state.attributes.get(ATTR_ENTITY_ID, []) if state is not None else []
-    if isinstance(members, str):
-        members = [members]
-    entities: List[str | Dict[str, str]] = [group]
-    entities += [member for member in members if member != group]
-    return EntitiesCard(title=f"{display_name(name)} lights", entities=entities)
+    entities: List[str | Dict[str, str]] = list(light_members(hass, group) or [group])
+    title = display_name(name)
+    if not title.lower().endswith(" lights"):
+        title = f"{title} lights"
+    return EntitiesCard(title=title, entities=entities)
 
 
 def motion_fragments(hass: HomeAssistant, config: Config) -> list[Fragment]:
@@ -285,7 +300,7 @@ def motion_fragments(hass: HomeAssistant, config: Config) -> list[Fragment]:
         Fragment(
             "manual_lights",
             manual_lights,
-            description="The light one light config drives, and its members",
+            description="Each bulb one light config drives",
             schema=light_schema,
         ),
         Fragment(
@@ -657,14 +672,17 @@ class DebugDetailsDashboard(GeneratedDashboard):
         )
 
     def _room_subview(self, room: Room) -> View:
-        """Each of the room's light configs' cards, one config after another."""
+        """Each of the room's light configs' cards, one config after another.
+
+        A config's bulbs are listed only if its light is a group: otherwise the
+        one bulb is its card's Light already.
+        """
         cards: list[Renderable] = []
         for name in room.lights:
             light = self._config.lights[name]
-            cards += [
-                light_config_card(name, light),
-                manual_lights_card(self._hass, name, light),
-            ]
+            cards.append(light_config_card(name, light))
+            if light_members(self._hass, light.lights.entity):
+                cards.append(manual_lights_card(self._hass, name, light))
         return self._subview(room.name, room_view(room), cards)
 
     async def render(self) -> DBT:

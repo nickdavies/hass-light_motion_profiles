@@ -5,6 +5,7 @@ dashboard still registers and renders against the installed lovelace_codegen.
 """
 
 import copy
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -29,6 +30,9 @@ from .conftest import (
     USER_B_PRESENCE,
     _ensure_custom_components_path,
 )
+
+
+SIMPLE_ROOM_BULBS = ("light.simple_room_a", "light.simple_room_b")
 
 
 def _entity_ids(node: Any) -> list[str]:
@@ -61,10 +65,11 @@ async def _setup_dashboards(
     for light, area in (areas or {}).items():
         config[DOMAIN]["light_configs"][light]["area"] = area
 
-    # The entities the config names but other integrations own.
+    # The entities the config names but other integrations own. simple_room's
+    # light is a Zigbee2MQTT group of two bulbs; bedside_lamp's is one bulb.
     for entity_id in (PERSON_USER_A, SIMPLE_ROOM_MOTION, BEDSIDE_MOTION):
         hass.states.async_set(entity_id, "on")
-    for entity_id in (SIMPLE_ROOM_LIGHT, BEDSIDE_LIGHT):
+    for entity_id in (SIMPLE_ROOM_LIGHT, BEDSIDE_LIGHT, *SIMPLE_ROOM_BULBS):
         hass.states.async_set(entity_id, "off")
 
     hass.data.pop(DATA_CUSTOM_COMPONENTS, None)
@@ -72,6 +77,10 @@ async def _setup_dashboards(
 
     assert await async_setup_component(hass, DOMAIN, config), "setup failed"
     await hass.async_block_till_done()
+    # After setup, whose light calls leave a mock light's state bare.
+    hass.states.async_set(
+        SIMPLE_ROOM_LIGHT, "off", {"group_entities": list(SIMPLE_ROOM_BULBS)}
+    )
     return hass
 
 
@@ -225,28 +234,51 @@ async def test_group_lists_its_members_in_user_order(
     assert _entity_ids(card) == [GROUP_PRESENCE, USER_A_PRESENCE, USER_B_PRESENCE]
 
 
-async def test_manual_lights_lists_a_group_light_then_its_members(
+async def test_manual_lights_lists_a_zigbee2mqtt_groups_bulbs(
     integration: HomeAssistant,
 ) -> None:
+    """Without the group itself: it is the light config card's Light."""
     integration.states.async_set(
-        SIMPLE_ROOM_LIGHT,
-        "on",
-        {"entity_id": ["light.simple_room_a", "light.simple_room_b"]},
+        SIMPLE_ROOM_LIGHT, "on", {"group_entities": list(SIMPLE_ROOM_BULBS)}
     )
 
     card = _render(integration, "manual_lights", light="simple_room")
 
-    assert _entity_ids(card) == [
-        SIMPLE_ROOM_LIGHT,
-        "light.simple_room_a",
-        "light.simple_room_b",
-    ]
+    assert _entity_ids(card) == list(SIMPLE_ROOM_BULBS)
+
+
+async def test_manual_lights_lists_a_light_groups_bulbs(
+    integration: HomeAssistant,
+) -> None:
+    """Home Assistant's own light groups name their members in `entity_id`."""
+    integration.states.async_set(
+        SIMPLE_ROOM_LIGHT, "on", {"entity_id": list(SIMPLE_ROOM_BULBS)}
+    )
+
+    card = _render(integration, "manual_lights", light="simple_room")
+
+    assert _entity_ids(card) == list(SIMPLE_ROOM_BULBS)
 
 
 async def test_manual_lights_on_a_single_light(integration: HomeAssistant) -> None:
     assert _entity_ids(_render(integration, "manual_lights", light="bedside_lamp")) == [
         BEDSIDE_LIGHT
     ]
+
+
+async def test_manual_lights_says_lights_once(integration: HomeAssistant) -> None:
+    from custom_components.light_motion_profiles.dashboards import (
+        manual_lights_card,
+    )
+
+    light: Any = SimpleNamespace(lights=SimpleNamespace(entity=BEDSIDE_LIGHT))
+
+    assert manual_lights_card(integration, "bedside_lamp", light).title == (
+        "Bedside lamp lights"
+    )
+    assert manual_lights_card(integration, "dining_lights", light).title == (
+        "Dining lights"
+    )
 
 
 # --- Debug details, the pages behind hass-configs' Debug dashboard ---
@@ -354,7 +386,6 @@ async def test_a_config_with_no_area_is_unassigned(
         "simple_room",
         "Simple room lights",
         "bedside_lamp",
-        "Bedside lamp lights",
     ]
 
 
@@ -394,8 +425,8 @@ async def test_a_room_is_each_configs_cards_one_after_another(
     assert _cards(views["room-living"]) == [
         _render(hass, "light_config", light="simple_room"),
         _render(hass, "manual_lights", light="simple_room"),
+        # bedside_lamp's light is one bulb, its light config card's Light.
         _render(hass, "light_config", light="bedside_lamp"),
-        _render(hass, "manual_lights", light="bedside_lamp"),
     ]
     assert not [path for path in views if path.startswith("light-")]
 
@@ -409,11 +440,15 @@ async def test_a_room_with_one_config_is_a_room_too(
     assert not [path for path in views if path.startswith("light-")]
 
 
-def _navigation(tap_action: dict[str, Any]) -> str | None:
-    """Where a tap goes, if it navigates. A floor plan's taps are wrapped for
-    Home Assistant's action handler, as `codegen_action`, by floorplan_tap."""
-    action = tap_action.get("codegen_action", tap_action)
-    return action["navigation_path"] if action.get("action") == "navigate" else None
+def _navigation(tap_action: dict[str, Any] | list[dict[str, Any]]) -> str | None:
+    """Where a tap goes, if it navigates. floorplan_tap makes a floor plan's tap a
+    list, its `navigate` then a `fire-dom-event`; earlier lovelace_codegen
+    wrapped it for Home Assistant's action handler, as `codegen_action`."""
+    for action in tap_action if isinstance(tap_action, list) else [tap_action]:
+        action = action.get("codegen_action", action)
+        if action.get("action") == "navigate":
+            return action["navigation_path"]
+    return None
 
 
 def _links(view: dict[str, Any]) -> list[str]:
