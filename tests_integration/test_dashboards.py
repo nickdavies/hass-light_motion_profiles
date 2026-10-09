@@ -440,11 +440,15 @@ async def test_a_room_with_one_config_is_a_room_too(
     assert not [path for path in views if path.startswith("light-")]
 
 
-def _navigation(tap_action: dict[str, Any]) -> str | None:
-    """Where a tap goes, if it navigates. A floor plan's taps are wrapped for
-    Home Assistant's action handler, as `codegen_action`, by floorplan_tap."""
-    action = tap_action.get("codegen_action", tap_action)
-    return action["navigation_path"] if action.get("action") == "navigate" else None
+def _navigation(tap_action: dict[str, Any] | list[dict[str, Any]]) -> str | None:
+    """Where a tap goes, if it navigates. floorplan_tap makes a floor plan's tap a
+    list, its `navigate` then a `fire-dom-event`; earlier lovelace_codegen
+    wrapped it for Home Assistant's action handler, as `codegen_action`."""
+    for action in tap_action if isinstance(tap_action, list) else [tap_action]:
+        action = action.get("codegen_action", action)
+        if action.get("action") == "navigate":
+            return action["navigation_path"]
+    return None
 
 
 def _links(view: dict[str, Any]) -> list[str]:
