@@ -9,7 +9,7 @@ from datetime import timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from .conftest import (
     SIMPLE_ROOM_MOTION,

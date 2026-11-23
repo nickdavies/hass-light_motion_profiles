@@ -1,6 +1,6 @@
 """Integration test configuration and fixtures.
 
-Uses pytest-homeassistant-custom-component for realistic HA testing.
+Uses pytest-homeassistant for realistic HA testing.
 """
 
 import pathlib
@@ -327,8 +327,8 @@ CONFIG_BRIDGE = REPO_ROOT / ".deps" / "hass-config_bridge"
 def _ensure_custom_components_path():
     """Ensure our project's custom_components is on the namespace path.
 
-    The pytest-homeassistant-custom-component plugin overrides the
-    custom_components namespace package path to its own testing_config directory.
+    The pytest-homeassistant plugin overrides the custom_components namespace
+    package path to its own testing_config directory.
     We need our project's custom_components to be discoverable too.
     """
     import custom_components
