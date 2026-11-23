@@ -5,7 +5,7 @@ Since this integration imports from homeassistant extensively,
 we mock the entire homeassistant package so tests can run without installing HA.
 This must be imported before any custom_components imports.
 
-When real HA is available (e.g. via pytest-homeassistant-custom-component),
+When real HA is available (e.g. via pytest-homeassistant),
 mocking is skipped to avoid conflicts.
 
 `import voluptuous` is made to mean probatio first, as importing Home Assistant
